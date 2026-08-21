@@ -6,3 +6,7 @@ out
 .DS_Store
 next-env.d.ts
 .playwright-mcp
+.superpowers
+
+# TypeScript incremental build cache
+*.tsbuildinfo
