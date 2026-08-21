@@ -50,14 +50,20 @@ export function tokenize(text: string): string[] {
     out.push(t);
   };
 
-  // Technical tokens first: capture the whole, then its parts, then blank the
-  // match so the generic word pass does not re-emit the parts a second time.
+  // Technical tokens first: capture the whole, then its parts, then the parts
+  // concatenated with the separators removed (the corpus and a query can
+  // spell the same term either way — "Next.js" vs "NextJS" — so the
+  // concatenated form is a third emitted shape, not a new feature), then
+  // blank the match so the generic word pass does not re-emit the parts a
+  // second time.
   let remainder = normalized;
   const technical = normalized.match(TECHNICAL) ?? [];
   for (const whole of technical) {
     push(whole);
     const parts = whole.split(/[._\-/:]/).filter(Boolean);
     for (const p of parts) out.push(p);
+    const joined = parts.join("");
+    if (joined !== whole && !parts.includes(joined)) out.push(joined);
     remainder = remainder.replace(whole, " ");
   }
 

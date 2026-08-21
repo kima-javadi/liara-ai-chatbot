@@ -60,8 +60,44 @@ describe("tokenize", () => {
   });
 
   it("exempts technical token parts from stopword filtering", () => {
-    expect(tokenize("--with-cache")).toEqual(["with-cache", "with", "cache"]);
-    expect(tokenize("--for-env")).toEqual(["for-env", "for", "env"]);
+    expect(tokenize("--with-cache")).toEqual([
+      "with-cache",
+      "with",
+      "cache",
+      "withcache",
+    ]);
+    expect(tokenize("--for-env")).toEqual([
+      "for-env",
+      "for",
+      "env",
+      "forenv",
+    ]);
+  });
+
+  it("also emits a technical token's parts concatenated, so either spelling style matches", () => {
+    expect(tokenize("Next.js")).toEqual(["next.js", "next", "js", "nextjs"]);
+    expect(tokenize("liara.json")).toEqual([
+      "liara.json",
+      "liara",
+      "json",
+      "liarajson",
+    ]);
+  });
+
+  it("lets a query typed as one word meet a document typed with a separator", () => {
+    // The corpus almost always spells the framework as one word ("NextJS");
+    // a natural-language query often types it with a dot ("Next.js"). Both
+    // must tokenize to a shared term or the two can never match.
+    expect(tokenize("Next.js")).toContain("nextjs");
+    expect(tokenize("NextJS")).toContain("nextjs");
+  });
+
+  it("does not duplicate the concatenation when it equals a part or the whole", () => {
+    // "3000:3000" -> parts ["3000","3000"], joined "30003000": harmless noise,
+    // still emitted once. A token with only one distinct part after removing
+    // separators, e.g. a whole that already has no separator, never reaches
+    // this path since TECHNICAL requires at least one separator.
+    expect(tokenize("3000:3000")).toEqual(["3000:3000", "3000", "3000", "30003000"]);
   });
 
   it("removes English stopwords in the generic word pass", () => {
