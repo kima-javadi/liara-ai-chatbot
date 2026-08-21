@@ -16,9 +16,18 @@ export type Bm25Index = {
 
 /**
  * The searchable text for a chunk is its prose plus the metadata a user is
- * likely to phrase a query in: the page title, the section title, the platform
- * label, and the code itself. Code matters because a question is often a
- * verbatim command or a `liara.json` field name.
+ * likely to phrase a query in: the page title, the section title and the
+ * platform label.
+ *
+ * `code[]` is deliberately NOT ranked on, though it still travels with the
+ * chunk into the model's context. Indexing it was measured against two
+ * alternatives over 17 queries: ranking code at weight 1 scored 15/17 top-1,
+ * de-duplicating code terms scored 15/17, and excluding code scored 16/17
+ * with no case regressing out of the top 6. Code is a magnet for false
+ * positives because an incidental identifier in a sample — the literal
+ * `Next.js` inside an email-server code comment — matches a question about
+ * deploying Next.js as strongly as a page actually about deployment, and
+ * such chunks are short, so length normalization amplifies them further.
  *
  * BM25 here has no native per-field weighting, so field importance is
  * emulated by repeating higher-value fields before concatenating everything
@@ -63,7 +72,6 @@ function documentText(c: Chunk): string {
     c.sectionTitle ? Array(SECTION_WEIGHT).fill(c.sectionTitle).join(" ") : "",
     c.platform ?? "",
     Array(TEXT_WEIGHT).fill(c.text).join(" "),
-    c.code.map((b) => b.body).join(" "),
   ].join(" ");
 }
 
