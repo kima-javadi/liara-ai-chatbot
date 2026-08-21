@@ -52,7 +52,7 @@ export function tokenize(text: string): string[] {
   for (const whole of technical) {
     push(whole);
     const parts = whole.split(/[._\-/:]/).filter(Boolean);
-    if (parts.length > 1) for (const p of parts) push(p);
+    for (const p of parts) out.push(p);
     remainder = remainder.replace(whole, " ");
   }
 

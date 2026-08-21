@@ -58,4 +58,14 @@ describe("tokenize", () => {
   it("does not emit duplicate parts when the whole equals the part", () => {
     expect(tokenize("liara")).toEqual(["liara"]);
   });
+
+  it("exempts technical token parts from stopword filtering", () => {
+    expect(tokenize("--with-cache")).toEqual(["with-cache", "with", "cache"]);
+    expect(tokenize("--for-env")).toEqual(["for-env", "for", "env"]);
+  });
+
+  it("removes English stopwords in the generic word pass", () => {
+    expect(tokenize("this is a test")).not.toContain("is");
+    expect(tokenize("this is a test")).toContain("test");
+  });
 });
