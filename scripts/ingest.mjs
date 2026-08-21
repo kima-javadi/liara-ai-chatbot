@@ -4,7 +4,10 @@
  *
  * The docs are not Markdown. They are MDX with heavy JSX: headings are
  * `<Section title="..." />`, code lives inside `<Highlight>{`...`}</Highlight>`,
- * and per-platform variants live inside `<Tabs tabs={[...]} content={[...]}>`.
+ * per-platform variants live inside `<Tabs tabs={[...]} content={[...]}>`, and
+ * numbered walkthroughs live inside `<Step steps={[{step, content}, ...]}>`.
+ * Decorative `{[...].map(...)}` list renders carry no structured content
+ * worth extracting and are dropped outright.
  *
  * Parsing is targeted regex rather than an MDX/estree parse. The component
  * vocabulary is small and consistent, and the JSX-inside-array-prop shape of
@@ -39,6 +42,72 @@ const MIN_PROSE = 80;
 const HIGHLIGHT =
   /<Highlight[^>]*className="([a-zA-Z0-9]+)"[^>]*>\s*\{`([\s\S]*?)`\}\s*<\/Highlight>/g;
 const TABS = /<(Tabs|HighlightTabs)\s+tabs=\{\[([\s\S]*?)\]\}\s*content=\{\[([\s\S]*?)\]\}\s*\/?>/g;
+// `<Step steps={[{step:"۱", content:(<>...</>)}, ...]}/>` — a numbered-steps
+// component shaped like `<Tabs>` but with a `steps` array-of-objects prop
+// instead of parallel `tabs`/`content` arrays.
+const STEP_OPEN = /<Step\s+steps=\{\[/g;
+const STEP_ITEM = /step:\s*"([^"]*)"[\s\S]*?content:\s*\(\s*<>([\s\S]*?)<\/>\s*\)/g;
+// `<HighlightTabs tabs={[{label, language, code, description}, ...]}/>` —
+// unlike `<Tabs>`, real usage never carries a separate `content=` array; the
+// per-item code and (optional) description live inside the same object. The
+// old dual-array TABS regex would still "match" this shape by skipping past
+// it to the next unrelated `content={[` in the file, silently swallowing
+// everything in between — hence bracket-matching instead of a plain regex
+// for the array boundary.
+const HTABS_OPEN = /<HighlightTabs\s+tabs=\{\[/g;
+const HTABS_ITEM =
+  /label:\s*"([^"]*)"[\s\S]*?language:\s*"([a-zA-Z0-9]*)"\s*,\s*code:\s*`([\s\S]*?)`(?:[\s\S]*?description:\s*\(\s*<>([\s\S]*?)<\/>\s*\))?/g;
+// Inline `{[{...}, {...}].map((item) => (...))}` and
+// `{identifier.map((item) => (...))}` list renders. These are decorative UI
+// generation, not structured content worth extracting; dropping the whole
+// expression avoids leaking raw JS/object-literal syntax as prose.
+const MAP_ARRAY_LITERAL = /\{\s*\[[\s\S]*?\]\.map\(\([\s\S]*?\)\s*=>\s*\([\s\S]*?\)\)\s*\}/g;
+const MAP_IDENTIFIER = /\{[A-Za-z_$][\w$.[\]"'-]*\.map\(\([\s\S]*?\)\s*=>\s*\([\s\S]*?\)\)\s*\}/g;
+
+/**
+ * `<Step>`'s `steps` array can itself contain a nested `<Tabs>`/`<HighlightTabs>`,
+ * whose own self-closing `]}/>` would satisfy a naive non-greedy end match for
+ * the outer `<Step>` too early, truncating the step list and silently
+ * dropping every step after the nested tabs. Track bracket depth instead of
+ * relying on the first `]}` seen.
+ */
+function findMatchingBracket(str, openIdx) {
+  let depth = 0;
+  for (let i = openIdx; i < str.length; i++) {
+    const ch = str[i];
+    if (ch === "[") depth++;
+    else if (ch === "]") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Finds every group opened by `openRe` (which must end just before the
+ * array's `[`) via bracket-depth matching, rather than a non-greedy regex
+ * that can leap past an unrelated closing `]}` far later in the file.
+ */
+function extractBracketGroups(src, openRe) {
+  const groups = [];
+  openRe.lastIndex = 0;
+  let m;
+  while ((m = openRe.exec(src))) {
+    const openIdx = m.index + m[0].length - 1; // index of the array's '['
+    const closeIdx = findMatchingBracket(src, openIdx);
+    if (closeIdx === -1) continue;
+    const tail = src.slice(closeIdx + 1).match(/^\s*\}\s*\/?>/);
+    if (!tail) continue;
+    const end = closeIdx + 1 + tail[0].length;
+    groups.push({
+      fullMatch: src.slice(m.index, end),
+      inner: src.slice(openIdx + 1, closeIdx),
+    });
+    openRe.lastIndex = end;
+  }
+  return groups;
+}
 
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -68,7 +137,9 @@ function cleanTitle(raw) {
 
 function stripJsx(src) {
   return src
-    .replace(/<\/?[A-Za-z][^>]*>/g, " ")
+    // Element tags AND bare fragments (`<>`, `</>`) — the optional letter
+    // class means a fragment (no tag name) matches too.
+    .replace(/<\/?[A-Za-z]?[^>]*>/g, " ")
     .replace(/\{`[\s\S]*?`\}/g, " ")
     .replace(/[{}]/g, " ")
     .replace(/\s+/g, " ")
@@ -103,21 +174,47 @@ for (const file of files) {
     return ` \u0000CODE${codes.length - 1}\u0000 `;
   });
 
-  // 2. Drop imports and the page wrapper.
+  // 2. Drop imports (multi-line destructuring first, so a wrapped import
+  //    doesn't leave its identifier list behind once the line carrying the
+  //    `import` keyword is removed) and the page wrapper.
   src = src
+    .replace(/^import\s*\{[\s\S]*?\}\s*from\s*["'][^"']*["'];?\s*\n?/gm, "")
     .replace(/^import[^\n]*\n/gm, "")
     .replace(/<Head>[\s\S]*?<\/Head>/g, "")
     .replace(/<\/?Layout>/g, "");
 
   const emit = (rawText, sectionTitle, platform, seq) => {
-    const used = [...rawText.matchAll(/\u0000CODE(\d+)\u0000/g)].map(
+    // Drop decorative inline array/map renders here, scoped to this single
+    // body/section fragment. Doing this per-fragment (rather than against
+    // the whole file) matters: run globally, the non-greedy `[...].map(`
+    // match can leap over an unrelated, later `.map(` nested inside a
+    // completely different <Tabs>/<Step> block and swallow real content
+    // between them.
+    // A `<Tabs>` whose `tabs` prop is an array of `{label, icon}` objects
+    // (rather than plain label strings) can appear nested inside another
+    // Tabs body that the outer (non-greedy) TABS regex swallows whole
+    // without separately extracting it; strip its object-literal keys here
+    // so they don't leak as prose alongside the JSX icon tag (already
+    // handled by stripJsx below).
+    const cleaned = rawText
+      .replace(MAP_ARRAY_LITERAL, " ")
+      .replace(MAP_IDENTIFIER, " ")
+      .replace(/\blabel:\s*"[^"]*"\s*,?/g, " ")
+      .replace(/\bicon:\s*,?/g, " ");
+    const used = [...cleaned.matchAll(/\u0000CODE(\d+)\u0000/g)].map(
       (m) => codes[Number(m[1])],
     ).filter(Boolean);
-    const text = stripJsx(rawText.replace(/\u0000CODE\d+\u0000/g, " "));
+    const text = stripJsx(cleaned.replace(/\u0000CODE\d+\u0000/g, " "));
     if (text.length < MIN_PROSE && used.length === 0) return;
 
     const parts = Math.max(1, Math.ceil(text.length / MAX_CHARS));
     for (let k = 0; k < parts; k++) {
+      const slice = text.slice(k * MAX_CHARS, (k + 1) * MAX_CHARS);
+      // A tail part (k > 0) never carries code (see `code:` below), so a
+      // tail whose own slice is under MIN_PROSE is nothing but the repeated
+      // title/section/platform prefix — drop it rather than emit a
+      // near-empty chunk.
+      if (k > 0 && slice.trim().length < MIN_PROSE) continue;
       chunks.push({
         id: `${url}#${seq}-${k}`,
         url,
@@ -125,17 +222,47 @@ for (const file of files) {
         sectionTitle,
         platform,
         // Repeat the titles into every part so context survives the split.
-        text: [pageTitle, sectionTitle, platform, text.slice(k * MAX_CHARS, (k + 1) * MAX_CHARS)]
-          .filter(Boolean)
-          .join(" — "),
+        text: [pageTitle, sectionTitle, platform, slice].filter(Boolean).join(" — "),
         code: k === 0 ? used : [],
       });
     }
   };
 
-  // 3. Pull each `<Tabs>` group out into per-platform chunks, replacing the
-  //    group in the page body so its content is not also emitted as prose.
+  // 3. Pull each `<Step>` group out into per-step chunks, each single-shape
+  //    `<HighlightTabs>` group into per-language chunks, then each `<Tabs>`
+  //    (and any genuinely dual-shape `<HighlightTabs>`) group into
+  //    per-platform chunks — replacing each group in the page body so its
+  //    content is not also emitted as prose.
   let seq = 0;
+  const stepGroups = extractBracketGroups(src, STEP_OPEN);
+  for (const g of stepGroups) {
+    const items = [...g.inner.matchAll(STEP_ITEM)];
+    items.forEach((m, i) => {
+      const [, label, body] = m;
+      emit(body, label ? `مرحله ${label}` : null, null, `step${seq}-${i}`);
+    });
+    src = src.replace(g.fullMatch, " ");
+    seq++;
+  }
+
+  // `<HighlightTabs>` must be extracted (and removed from `src`) BEFORE the
+  // dual-array TABS regex runs: real usage never has its own `content=`
+  // prop, so the non-greedy TABS regex would otherwise skip past it looking
+  // for the next unrelated `content={[` in the file — matching across huge,
+  // unrelated spans of the page and swallowing everything in between.
+  const htabsGroups = extractBracketGroups(src, HTABS_OPEN);
+  for (const g of htabsGroups) {
+    const items = [...g.inner.matchAll(HTABS_ITEM)];
+    items.forEach((m, i) => {
+      const [, label, lang, code, description] = m;
+      const idx = codes.push({ lang, body: code.trim() }) - 1;
+      const body = `${description || ""} \u0000CODE${idx}\u0000 `;
+      emit(body, null, label || null, `htabs${seq}-${i}`);
+    });
+    src = src.replace(g.fullMatch, " ");
+    seq++;
+  }
+
   const tabGroups = [...src.matchAll(TABS)];
   for (const g of tabGroups) {
     const labels = [...g[2].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
