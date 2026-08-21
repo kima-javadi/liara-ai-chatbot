@@ -140,11 +140,15 @@ unless they contain code.
 therefore never needs the docs checkout, and `liara deploy` remains a single
 command with no extra build inputs.
 
-Measured against the real corpus (2026-08-21 spike): 1,143 files produce
-2,873 section chunks plus an estimated 1,067 tab-derived chunks, for roughly
-3,940 total, carrying 3,626 code blocks. The artifact is **5.4 MB raw, 0.96 MB
-gzipped**. All 1,143 derived URLs were well-formed and no chunk leaked raw
-MDX, confirming the mask-code-before-strip ordering. At this size the artifact
+Measured against the real corpus (2026-08-21, corrected against the shipped
+ingester): 1,143 files produce **3,293 chunks** — 2,474 section chunks and 819
+per-platform chunks — carrying 3,457 code blocks, at **5.45 MB raw**. The
+throwaway spike first reported roughly 3,940; that figure double-counted, since
+it included `<Tabs>` content in its section total and then added an estimated
+tab yield on top. The ingester splices each `<Tabs>` group out of the page body
+before splitting on `<Section>`, so tab content is emitted exactly once.
+
+All derived URLs were well-formed and no chunk leaked raw MDX, confirming the mask-code-before-strip ordering. At this size the artifact
 is committed as plain JSON with no size mitigations required.
 
 Two ingestion details the spike surfaced:
