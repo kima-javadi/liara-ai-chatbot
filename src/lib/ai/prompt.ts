@@ -35,8 +35,13 @@ ${CHIP_MARKER_OPEN} چطور این برنامه را با CLI دیپلوی کن
  * invitation to paste a mangled one into the prose.
  */
 export function buildContext(hits: SearchHit[]): string {
+  // No hits is not an instruction to refuse. It used to say "tell the user
+  // this topic was not found in the Liara docs", which overrode rule 1's
+  // anti-over-refusal wording and produced exactly that refusal live. It now
+  // says the same thing rule 1 does: answer anyway, from general knowledge,
+  // and flag that the answer is not drawn from the retrieved documentation.
   if (!hits.length) {
-    return "مستندات مرتبطی یافت نشد. به کاربر بگو که این موضوع در مستندات لیارا پیدا نشد.";
+    return "مستندات مرتبطی برای این سؤال بازیابی نشد. طبق قاعده ۱ پاسخ بده: از دانش عمومی خودت درباره لیارا و استقرار برنامه‌های وب یک پاسخ کاربردی و کامل بده، و در یک جمله کوتاه بگو که این پاسخ از مستندات بازیابی‌شده نیامده و بهتر است کاربر آن را با مستندات رسمی لیارا تطبیق دهد. فقط اگر سؤال هیچ ربطی به استقرار، میزبانی یا سرویس‌های لیارا ندارد از پاسخ دادن خودداری کن.";
   }
 
   const blocks = hits.map((hit, i) => {
