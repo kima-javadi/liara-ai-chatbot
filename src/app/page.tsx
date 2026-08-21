@@ -9,6 +9,11 @@ import { Chip } from "@/components/chat/Chip";
 import { splitChips } from "@/lib/chips";
 import type { Message, Source } from "@/components/chat/MessageBubble";
 
+// Module scope, not inline in the hook call: a transport rebuilt on every
+// render makes useChat re-subscribe to the in-flight stream, which appends a
+// second assistant message carrying the same source parts.
+const transport = new DefaultChatTransport({ api: "/api/chat" });
+
 const QUICK_ACTIONS = [
   { label: "عیب‌یابی لاگ خطا", prompt: "این لاگ خطای استقرار را بررسی کن:\n" },
   { label: "ساخت liara.json", prompt: "برای پروژه Next.js من liara.json بساز" },
@@ -17,9 +22,7 @@ const QUICK_ACTIONS = [
 ];
 
 export default function Page() {
-  const { messages, sendMessage, status, error } = useChat({
-    transport: new DefaultChatTransport({ api: "/api/chat" }),
-  });
+  const { messages, sendMessage, status, error } = useChat({ transport });
   const busy = status !== "ready" && status !== "error";
 
   // Adapt AI SDK UIMessages into the shape the presentational components

@@ -94,7 +94,12 @@ export async function POST(req: Request) {
         ],
       });
 
-      writer.merge(toUIMessageStream({ stream: result.stream }));
+      // sendStart: false because the source-url parts above already opened
+      // this assistant message. Letting the merged stream emit its own `start`
+      // makes the client render a second assistant turn with the same sources.
+      writer.merge(
+        toUIMessageStream({ stream: result.stream, sendStart: false }),
+      );
     },
   });
 
