@@ -55,14 +55,22 @@ const STEP_ITEM = /step:\s*"([^"]*)"[\s\S]*?content:\s*\(\s*<>([\s\S]*?)<\/>\s*\
 // everything in between — hence bracket-matching instead of a plain regex
 // for the array boundary.
 const HTABS_OPEN = /<HighlightTabs\s+tabs=\{\[/g;
+// The code field is itself a backtick template literal, and a code sample
+// can contain its OWN nested (escaped) backtick/`${` — e.g. a JS sample
+// building a template string, `\`"my app" <\${MAIL_FROM}>\`, `. A plain
+// non-greedy `` `([\s\S]*?)` `` stops at that first escaped backtick,
+// truncating the sample. `(?:\\.|[^`\\])*` treats "backslash + any char"
+// as one atomic unit so an escaped backtick can't end the capture early.
 const HTABS_ITEM =
-  /label:\s*"([^"]*)"[\s\S]*?language:\s*"([a-zA-Z0-9]*)"\s*,\s*code:\s*`([\s\S]*?)`(?:[\s\S]*?description:\s*\(\s*<>([\s\S]*?)<\/>\s*\))?/g;
-// Inline `{[{...}, {...}].map((item) => (...))}` and
-// `{identifier.map((item) => (...))}` list renders. These are decorative UI
-// generation, not structured content worth extracting; dropping the whole
-// expression avoids leaking raw JS/object-literal syntax as prose.
-const MAP_ARRAY_LITERAL = /\{\s*\[[\s\S]*?\]\.map\(\([\s\S]*?\)\s*=>\s*\([\s\S]*?\)\)\s*\}/g;
-const MAP_IDENTIFIER = /\{[A-Za-z_$][\w$.[\]"'-]*\.map\(\([\s\S]*?\)\s*=>\s*\([\s\S]*?\)\)\s*\}/g;
+  /label:\s*"([^"]*)"[\s\S]*?language:\s*"([a-zA-Z0-9]*)"\s*,\s*code:\s*`((?:\\.|[^`\\])*)`(?:[\s\S]*?description:\s*\(\s*<>([\s\S]*?)<\/>\s*\))?/g;
+// Inline `{[{...}, {...}].map(...)}` and `{identifier.map(...)}` list
+// renders. These are decorative UI generation, not structured content
+// worth extracting; dropping the whole expression avoids leaking raw
+// JS/object-literal syntax as prose. The arrow function can take any shape
+// — `x =>`, `(x) =>`, `(x, i) =>` — with a wrapped `(...)` or bare body, so
+// this is matched by bracket/brace depth (see stripMapArrayLiterals)
+// rather than another shape-specific regex.
+const IDENT_CHAIN = /^[A-Za-z_$][\w$]*(?:\[[^\]]*\]|\.[A-Za-z_$][\w$]*)*/;
 
 /**
  * `<Step>`'s `steps` array can itself contain a nested `<Tabs>`/`<HighlightTabs>`,
@@ -109,6 +117,66 @@ function extractBracketGroups(src, openRe) {
   return groups;
 }
 
+function findMatchingBrace(str, openIdx) {
+  let depth = 0;
+  for (let i = openIdx; i < str.length; i++) {
+    const ch = str[i];
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Drops every `{ <array-literal-or-identifier-chain>.map(...) }` decorative
+ * list render in `text`, whatever the arrow-function's shape. Found by
+ * scanning for a `{` whose immediate content is either a `[...]` array
+ * literal (bracket-depth matched) or an identifier/member-expression chain
+ * (`models["x"]`, `item.text`), checking that `.map(` follows directly,
+ * then — only then — dropping the *whole* enclosing `{...}` expression via
+ * brace-depth matching. Matching by depth rather than a shape-specific
+ * regex is what makes this robust to `x =>`, `(x) =>`, `(x, i) =>`, and
+ * wrapped vs. bare arrow bodies alike.
+ */
+function stripMapArrayLiterals(text) {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "{") {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      let exprEnd = -1;
+      if (text[j] === "[") {
+        const arrClose = findMatchingBracket(text, j);
+        if (arrClose !== -1) exprEnd = arrClose + 1;
+      } else {
+        const m = IDENT_CHAIN.exec(text.slice(j));
+        if (m && m[0].length > 0) {
+          // The chain regex greedily eats a trailing ".map" as just
+          // another property access; back off so the ".map(" check below
+          // still sees it.
+          const chainLen = m[0].endsWith(".map") ? m[0].length - 4 : m[0].length;
+          exprEnd = j + chainLen;
+        }
+      }
+      if (exprEnd !== -1 && /^\s*\.map\(/.test(text.slice(exprEnd))) {
+        const braceClose = findMatchingBrace(text, i);
+        if (braceClose !== -1) {
+          out += " ";
+          i = braceClose + 1;
+          continue;
+        }
+      }
+    }
+    out += text[i];
+    i++;
+  }
+  return out;
+}
+
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
@@ -133,6 +201,16 @@ function cleanTitle(raw) {
     .replace(/^\s*مستندات\s+/, "")
     .replace(/\s*-\s*لیارا\s*$/, "")
     .trim();
+}
+
+/**
+ * A code sample embedded in a `<HighlightTabs>` item's `code` template
+ * literal escapes its own backtick/`${` so the outer template literal
+ * doesn't interpret them — unescape both so the body reads exactly as the
+ * author wrote the sample.
+ */
+function unescapeCode(s) {
+  return s.replace(/\\`/g, "`").replace(/\\\$\{/g, "${");
 }
 
 function stripJsx(src) {
@@ -196,9 +274,7 @@ for (const file of files) {
     // without separately extracting it; strip its object-literal keys here
     // so they don't leak as prose alongside the JSX icon tag (already
     // handled by stripJsx below).
-    const cleaned = rawText
-      .replace(MAP_ARRAY_LITERAL, " ")
-      .replace(MAP_IDENTIFIER, " ")
+    const cleaned = stripMapArrayLiterals(rawText)
       .replace(/\blabel:\s*"[^"]*"\s*,?/g, " ")
       .replace(/\bicon:\s*,?/g, " ");
     const used = [...cleaned.matchAll(/\u0000CODE(\d+)\u0000/g)].map(
@@ -255,7 +331,7 @@ for (const file of files) {
     const items = [...g.inner.matchAll(HTABS_ITEM)];
     items.forEach((m, i) => {
       const [, label, lang, code, description] = m;
-      const idx = codes.push({ lang, body: code.trim() }) - 1;
+      const idx = codes.push({ lang, body: unescapeCode(code.trim()) }) - 1;
       const body = `${description || ""} \u0000CODE${idx}\u0000 `;
       emit(body, null, label || null, `htabs${seq}-${i}`);
     });

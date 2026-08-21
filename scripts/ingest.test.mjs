@@ -49,9 +49,13 @@ describe("docs index", () => {
     // tabs={[{label, language, code}]}>`, an inline `{label, icon}` tabs
     // array, or a decorative `{[...].map(...)}` list) leak their key names
     // and punctuation as prose if the extraction regex mismatches the
-    // component's true boundary.
+    // component's true boundary. `.map(` is asserted bare (not `.map((`)
+    // because the call can take any arrow-function shape — `x =>`,
+    // `(x) =>`, `(x, i) =>` — and a shape-specific pattern here previously
+    // let the single-paren, unwrapped-body form (the corpus's common one)
+    // straight through.
     const debrisPattern =
-      /\bstep:\s*"|\bcontent:\s*\(|\blabel:\s*"|\blanguage:\s*"|\bicon:\s*,|\.map\(\(/;
+      /\bstep:\s*"|\bcontent:\s*\(|\blabel:\s*"|\blanguage:\s*"|\bicon:\s*,|\balt:\s*['"]|\blink:\s*['"]|\bplatform:\s*['"]|\btitle:\s*['"]|\.map\(/;
     const bad = chunks.filter((c) => debrisPattern.test(c.text));
     expect(bad.map((c) => c.id).slice(0, 5)).toEqual([]);
   });
@@ -81,6 +85,64 @@ describe("docs index", () => {
       return !rest.trim();
     });
     expect(bad.map((c) => c.id).slice(0, 5)).toEqual([]);
+  });
+
+  it("never truncates a code body mid-escape", () => {
+    // The tell-tale sign of a non-greedy backtick capture stopping at an
+    // escaped `\`` inside the sample (rather than the real closing
+    // backtick): the captured body ends on a dangling backslash.
+    const bad = [];
+    for (const c of chunks) {
+      for (const cb of c.code) {
+        if (/\\$/.test(cb.body)) bad.push(c.id);
+      }
+    }
+    expect(bad.slice(0, 5)).toEqual([]);
+  });
+
+  it("never emits a code body implausibly short next to its same-language siblings", () => {
+    // Group code bodies by (url, lang) — parallel examples for the same
+    // task/platform set should be roughly comparable in length. Flag a
+    // body only when it is BOTH far shorter than its longest sibling AND
+    // has more open braces/parens than closes — the actual signature of a
+    // truncated capture (e.g. `const mailOptions = {\n  from: "` has an
+    // unclosed `{`). Short-but-complete siblings (a one-line shell command
+    // next to a full example) are balanced and so aren't flagged.
+    const byKey = new Map();
+    for (const c of chunks) {
+      for (const cb of c.code) {
+        const key = `${c.url}::${cb.lang}`;
+        if (!byKey.has(key)) byKey.set(key, []);
+        byKey.get(key).push({ id: c.id, body: cb.body });
+      }
+    }
+    const bad = [];
+    for (const entries of byKey.values()) {
+      if (entries.length < 2) continue;
+      const max = Math.max(...entries.map((e) => e.body.length));
+      for (const e of entries) {
+        const opens = (e.body.match(/[{(]/g) || []).length;
+        const closes = (e.body.match(/[})]/g) || []).length;
+        if (e.body.length < max * 0.05 && e.body.length < 100 && opens > closes) {
+          bad.push(e.id);
+        }
+      }
+    }
+    expect(bad.slice(0, 5)).toEqual([]);
+  });
+
+  it("keeps the full mailOptions object, including cc/bcc, for use-cc-bcc's NodeJS sample", () => {
+    const page = chunks.filter(
+      (c) => c.url === "https://docs.liara.ir/email-server/how-tos/use-cc-bcc",
+    );
+    const nodejs = page.find((c) => c.platform === "NodeJS" && c.code.length > 0);
+    expect(nodejs).toBeTruthy();
+    const body = nodejs.code[0].body;
+    expect(body).toContain("const mailOptions");
+    expect(body).toContain('cc: ["example.one@example.com", "example.two@example.com"]');
+    expect(body).toContain("bcc:");
+    expect(body).toContain("subject:");
+    expect(body.length).toBeGreaterThan(300);
   });
 
   it("strips title boilerplate", () => {
