@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { search } from "./index";
+import { retrievalQuery } from "@/lib/ai/prompt";
 
 /**
  * Each case asserts that a known page appears in the top results for a
@@ -60,5 +61,46 @@ describe("search", () => {
     const rate = (CASES.length - misses.length) / CASES.length;
     if (rate < 0.7) console.error("missed:", misses);
     expect(rate).toBeGreaterThanOrEqual(0.7);
+  });
+
+  // Regression coverage for the config-generation defect: a request to
+  // *generate* a liara.json was retrieving incidental framework-name
+  // mentions (an AI-SDK telemetry page, an unrelated SQLite how-to) instead
+  // of the liara.json reference page that documents the real field list
+  // (platform, port, app, disks, cron, build, healthCheck, ...). Queries go
+  // through retrievalQuery — the same function the chat route calls — so
+  // this exercises the actual enrichment path, not just bare search().
+  describe("config-generation intent", () => {
+    const CONFIG_CASES = [
+      "برای پروژه Next.js من یک liara.json بساز",
+      "یک فایل پیکربندی برای Laravel بساز",
+      "generate a liara.json for my django app",
+    ];
+
+    it("includes a liarajson chunk in the retrieved set for every phrasing", () => {
+      for (const q of CONFIG_CASES) {
+        const hits = search(retrievalQuery(q), 6);
+        expect(
+          hits.some((h) => h.chunk.url.startsWith("https://docs.liara.ir/paas/liarajson")),
+          `expected a liarajson chunk for: ${q}`,
+        ).toBe(true);
+      }
+    });
+
+    it("ranks a liarajson chunk first for every phrasing", () => {
+      for (const q of CONFIG_CASES) {
+        const hits = search(retrievalQuery(q), 6);
+        expect(
+          hits[0]?.chunk.url,
+          `expected liarajson top-1 for: ${q}`,
+        ).toMatch(/^https:\/\/docs\.liara\.ir\/paas\/liarajson/);
+      }
+    });
+
+    it("leaves unrelated queries unenriched", () => {
+      // A plain question with no config-generation signal should not be
+      // rewritten, so its ranking behaves exactly as before this change.
+      expect(retrievalQuery("cron job در لیارا")).toBe("cron job در لیارا");
+    });
   });
 });
