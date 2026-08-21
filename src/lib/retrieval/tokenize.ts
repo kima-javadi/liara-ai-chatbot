@@ -34,7 +34,12 @@ export function normalize(text: string): string {
  * `build-location` rather than a token no query would ever reproduce.
  */
 const TECHNICAL = /[a-z0-9]+(?:[._\-/:][a-z0-9]+)+/g;
-const WORD = /[a-z0-9]+|[؀-ۿ]+/g;
+// Persian/Arabic letters only: U+0600-U+061F is the Arabic punctuation and
+// sign block (e.g. `،` U+060C, `؛` U+061B, `؟` U+061F), not letters — actual
+// letters start at U+0621 (hamza). Including that block let a trailing `؟`
+// glue itself onto the previous word (`کنم؟`), which then matched nothing in
+// the corpus.
+const WORD = /[a-z0-9]+|[ء-ۿ]+/g;
 
 export function tokenize(text: string): string[] {
   const normalized = normalize(text);

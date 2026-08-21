@@ -68,4 +68,21 @@ describe("tokenize", () => {
     expect(tokenize("this is a test")).not.toContain("is");
     expect(tokenize("this is a test")).toContain("test");
   });
+
+  it("never emits a token containing Arabic/Persian punctuation", () => {
+    // U+0600-U+061F is the Arabic punctuation and sign block (؟ ، ؛ …), not
+    // letters — a trailing "؟" must not glue onto the preceding word.
+    const PUNCTUATION = /[؀-؟]/;
+    const samples = [
+      "چطور یک برنامه Next.js را روی لیارا مستقر کنم؟",
+      "چگونه دامنه اختصاصی به برنامه‌ام اضافه کنم؟",
+      "خطای ۵۰۲ می‌گیرم، چه کار کنم؟",
+      "این یک تست است؛ آیا کار می‌کند؟",
+    ];
+    for (const s of samples) {
+      for (const t of tokenize(s)) {
+        expect(t).not.toMatch(PUNCTUATION);
+      }
+    }
+  });
 });

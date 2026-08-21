@@ -5,6 +5,13 @@ import { search } from "./index";
  * Each case asserts that a known page appears in the top results for a
  * question a user would plausibly type. Persian and English are both covered
  * because the corpus is Persian but developers often type English keywords.
+ *
+ * The first block is keyword-shaped (how a developer types into a search
+ * box). The second block is sentence-shaped, natural Persian questions with
+ * real sentence particles and punctuation — this is the shape that exposed
+ * the field-weighting/tokenizer defect the keyword-shaped queries could not
+ * catch, so both shapes are kept side by side rather than replacing one with
+ * the other.
  */
 const CASES: Array<{ q: string; expectUrl: string }> = [
   { q: "فایل liara.json چیست؟", expectUrl: "https://docs.liara.ir/paas/liarajson" },
@@ -17,6 +24,13 @@ const CASES: Array<{ q: string; expectUrl: string }> = [
   { q: "object storage bucket", expectUrl: "https://docs.liara.ir/object-storage" },
   { q: "دامنه اختصاصی اضافه کنم", expectUrl: "https://docs.liara.ir/paas/domains" },
   { q: "django deployment", expectUrl: "https://docs.liara.ir/paas/django" },
+
+  // Sentence-shaped, natural Persian questions.
+  { q: "چطور یک برنامه Next.js را روی لیارا مستقر کنم؟", expectUrl: "https://docs.liara.ir/paas/nextjs" },
+  { q: "چگونه دامنه اختصاصی به برنامه‌ام اضافه کنم؟", expectUrl: "https://docs.liara.ir/paas/domains" },
+  { q: "چطور از دیتابیس مای‌اسکیوال بکاپ بگیرم؟", expectUrl: "https://docs.liara.ir/dbaas" },
+  { q: "خطای ۵۰۲ می‌گیرم، چه کار کنم؟", expectUrl: "https://docs.liara.ir/paas" },
+  { q: "چطور حجم دیسک برنامه را زیاد کنم؟", expectUrl: "https://docs.liara.ir/paas/disks" },
 ];
 
 describe("search", () => {

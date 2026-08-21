@@ -19,13 +19,50 @@ export type Bm25Index = {
  * likely to phrase a query in: the page title, the section title, the platform
  * label, and the code itself. Code matters because a question is often a
  * verbatim command or a `liara.json` field name.
+ *
+ * BM25 here has no native per-field weighting, so field importance is
+ * emulated by repeating higher-value fields before concatenating everything
+ * into one bag of words. Repetition raises both a field's term frequency
+ * *and* the document's total length; since length normalization is global,
+ * padding a chunk's title/section/prose grows its length without growing the
+ * match count of a term that only occurs in `code[]`, which pushes that
+ * term's contribution down relative to chunks that genuinely match in prose.
+ *
+ * Weights (title 4x, section 3x, prose 2x, platform/code 1x) were chosen by
+ * measuring the 10 keyword-shaped smoke queries plus a set of sentence-shaped
+ * ones (search.test.ts) at several multiplier combinations:
+ *  - 1x everywhere (no weighting) reproduces the reported defect.
+ *  - 4/3/2 is the smallest weighting that measurably separates title/prose
+ *    matches from code-only ones without changing which page wins any of the
+ *    18 measured queries' *correct* top hit; it keeps every one of the 10
+ *    original smoke cases at the same rank-1 page as before.
+ *  - Pushing weights much higher (e.g. 15/10/5, 40/25/12) or shifting the
+ *    ratio toward prose (e.g. 3/2/8) does not fix the worst offender in this
+ *    codebase (see search.test.ts's "چطور یک برنامه Next.js..." case) and
+ *    instead starts pulling in unrelated pages whose prose happens to repeat
+ *    a rare query term (e.g. an AI-SDK telemetry page that mentions
+ *    "Next.js" in an example), and it re-orders unrelated queries (e.g. a
+ *    dbaas hardware-plans page briefly outscoring the disks pages). That
+ *    query's failure mode is a separate, deeper issue than field weighting
+ *    can fix: the corpus almost always spells the framework as one word,
+ *    "NextJS" (one token), while a query typed as "Next.js" (with a dot)
+ *    tokenizes to "next.js" + "next" + "js" — tokens that only coincide with
+ *    two unrelated AI-SDK pages and the email-server code samples that
+ *    happen to contain the literal string "Next.js" in a comment. Field
+ *    weighting narrows the gap (see the before/after scores in the report)
+ *    but does not flip the ranking; that is reported as a genuine remaining
+ *    miss rather than tuned away.
  */
+const TITLE_WEIGHT = 4;
+const SECTION_WEIGHT = 3;
+const TEXT_WEIGHT = 2;
+
 function documentText(c: Chunk): string {
   return [
-    c.pageTitle,
-    c.sectionTitle ?? "",
+    Array(TITLE_WEIGHT).fill(c.pageTitle).join(" "),
+    c.sectionTitle ? Array(SECTION_WEIGHT).fill(c.sectionTitle).join(" ") : "",
     c.platform ?? "",
-    c.text,
+    Array(TEXT_WEIGHT).fill(c.text).join(" "),
     c.code.map((b) => b.body).join(" "),
   ].join(" ");
 }
