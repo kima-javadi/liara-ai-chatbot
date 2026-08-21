@@ -103,4 +103,65 @@ describe("search", () => {
       expect(retrievalQuery("cron job در لیارا")).toBe("cron job در لیارا");
     });
   });
+
+  // Regression coverage for the unbounded-query-cost fix. `queryIndex` now
+  // folds duplicate query terms into a count map instead of re-scanning the
+  // corpus once per occurrence. The claim attached to that change is "the
+  // ranking is unchanged" — these cases test it against the real index and
+  // the observable ranked output, not against the implementation's own
+  // arithmetic.
+  describe("duplicate query terms", () => {
+    // Captured from the pre-deduplication implementation, over the same
+    // committed index. If deduplication had altered ranking, these would move.
+    const GOLDEN: Array<{ q: string; ids: string[] }> = [
+      {
+        q: "liara liara liara json json port",
+        ids: [
+          "https://docs.liara.ir/paas/liarajson#5-0",
+          "https://docs.liara.ir/paas/docker/how-tos/deploy-image-from-dockerhub#tab0-0-0",
+          "https://docs.liara.ir/paas/go/quick-start#step2-4-0",
+          "https://docs.liara.ir/paas/python/quick-start#step2-3-0",
+          "https://docs.liara.ir/references/cli/create-liara-json#1-0",
+          "https://docs.liara.ir/paas/nodejs/how-tos/deploy-app#tab3-1-0",
+        ],
+      },
+      {
+        q: "port port port port app app platform",
+        ids: [
+          "https://docs.liara.ir/paas/go/quick-start#step2-4-0",
+          "https://docs.liara.ir/paas/python/quick-start#step2-3-0",
+          "https://docs.liara.ir/paas/docker/how-tos/deploy-app#tab3-1-0",
+          "https://docs.liara.ir/paas/nodejs/quick-start#step1-6-0",
+          "https://docs.liara.ir/paas/docker/quick-start#step1-6-0",
+          "https://docs.liara.ir/paas/go/quick-start#step1-6-0",
+        ],
+      },
+    ];
+
+    it("reproduces the pre-deduplication ranking for repeated-term queries", () => {
+      for (const { q, ids } of GOLDEN) {
+        expect(search(q, 6).map((h) => h.chunk.id), q).toEqual(ids);
+      }
+    });
+
+    it("orders a k-times-repeated query exactly like the original", () => {
+      for (const q of ["اتصال به دیتابیس mysql", "liara.json port", "cron job در لیارا"]) {
+        const base = search(q, 10).map((h) => h.chunk.id);
+        for (const k of [3, 7]) {
+          const repeated = Array(k).fill(q).join(" ");
+          expect(search(repeated, 10).map((h) => h.chunk.id), `${q} x${k}`).toEqual(base);
+        }
+      }
+    });
+
+    // Before the fix this exact query took ~3.5s of blocking CPU on the real
+    // index (measured); after, ~10ms. The threshold is deliberately loose so
+    // it fails only on a return to per-occurrence scanning.
+    it("does not spend seconds on a query of one repeated term", () => {
+      const q = Array(100_000).fill("لیارا").join(" ");
+      const started = performance.now();
+      search(q, 6);
+      expect(performance.now() - started).toBeLessThan(1_000);
+    });
+  });
 });

@@ -107,10 +107,23 @@ export function queryIndex(
   const terms = tokenize(query);
   if (!terms.length) return [];
 
+  // Fold duplicate query terms into a count map and multiply their score
+  // contribution instead of re-scanning the corpus once per occurrence.
+  // BM25's query-side sum is linear in the number of occurrences of a term
+  // (the per-term contribution depends only on the *document*'s tf), so
+  // `count * contribution` is exactly the value the repeated loop produced —
+  // the ranking is unchanged, including the deliberate repetition in the
+  // config enrichment vocabulary, which now reads as an explicit weight.
+  // What changes is the cost: a 100k-token query with one distinct term is
+  // one corpus scan, not 100,000 of them, so an oversized body can no longer
+  // pin the single Node process for seconds.
+  const counts = new Map<string, number>();
+  for (const t of terms) counts.set(t, (counts.get(t) ?? 0) + 1);
+
   const N = index.chunks.length;
   const scores = new Float64Array(N);
 
-  for (const term of terms) {
+  for (const [term, count] of counts) {
     const df = index.df.get(term);
     if (!df) continue;
     // Standard BM25 IDF with the +1 inside the log, which keeps the value
@@ -121,7 +134,7 @@ export function queryIndex(
       const f = index.tf[i].get(term);
       if (!f) continue;
       const norm = 1 - B + (B * index.lengths[i]) / (index.avgLength || 1);
-      scores[i] += idf * ((f * (K1 + 1)) / (f + K1 * norm));
+      scores[i] += count * idf * ((f * (K1 + 1)) / (f + K1 * norm));
     }
   }
 
