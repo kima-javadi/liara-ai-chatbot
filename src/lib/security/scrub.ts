@@ -62,3 +62,45 @@ export function scrub(text: string): string {
   }
   return out;
 }
+
+/**
+ * Redacts every string a message part carries, at any depth.
+ *
+ * `text` is not the only part type that reaches the provider:
+ * `convertToModelMessages` also forwards `file` parts (whose `url` can be a
+ * `data:` payload) and `reasoning` parts, so scrubbing only `text` left a
+ * literal hole in the "nothing unscrubbed reaches the LLM" guarantee.
+ *
+ * Structural keys are left alone — they are protocol identifiers, never user
+ * prose, and rewriting them would corrupt the part rather than protect it.
+ * Nothing is dropped: an unknown part type still reaches the model, just with
+ * its strings redacted.
+ */
+const STRUCTURAL_KEYS = new Set([
+  "type",
+  "state",
+  "mediaType",
+  "sourceId",
+  "toolCallId",
+  "toolName",
+  "providerMetadata",
+  "callProviderMetadata",
+]);
+
+function scrubDeep(value: unknown): unknown {
+  if (typeof value === "string") return scrub(value);
+  if (Array.isArray(value)) return value.map(scrubDeep);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [
+        k,
+        STRUCTURAL_KEYS.has(k) ? v : scrubDeep(v),
+      ]),
+    );
+  }
+  return value;
+}
+
+export function scrubParts<T>(parts: T[]): T[] {
+  return parts.map((p) => scrubDeep(p) as T);
+}

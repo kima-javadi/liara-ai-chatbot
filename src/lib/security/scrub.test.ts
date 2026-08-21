@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { scrub } from "./scrub";
+import { convertToModelMessages } from "ai";
+import { scrub, scrubParts } from "./scrub";
 
 describe("scrub", () => {
   it("redacts OpenAI-style API keys", () => {
@@ -81,5 +82,72 @@ describe("scrub", () => {
   it("leaves an error log untouched", () => {
     const log = "npm ERR! cipm can only install packages when your package.json";
     expect(scrub(log)).toBe(log);
+  });
+});
+
+/**
+ * These assert against the artifact that actually leaves the process: the
+ * output of the AI SDK's own `convertToModelMessages`. Each case first proves
+ * the secret DOES survive conversion when the part is not scrubbed, so a
+ * passing "after" is not a test of a fixture that never carried the secret.
+ */
+describe("scrubParts", () => {
+  const SECRET = "AKIAIOSFODNN7EXAMPLE";
+
+  async function modelJson(parts: unknown[]) {
+    const converted = await convertToModelMessages([
+      { id: "m1", role: "user", parts },
+      { id: "m2", role: "assistant", parts: [{ type: "text", text: "ok" }] },
+    ] as never);
+    return JSON.stringify(converted);
+  }
+
+  it("redacts a data: URL carried by a file part", async () => {
+    const part = {
+      type: "file",
+      mediaType: "text/plain",
+      url: `data:text/plain,aws key ${SECRET}`,
+    };
+    expect(await modelJson([part])).toContain(SECRET);
+    expect(await modelJson(scrubParts([part]))).not.toContain(SECRET);
+  });
+
+  it("redacts a reasoning part", async () => {
+    const parts = [
+      { type: "reasoning", text: `reasoning ${SECRET}` },
+      { type: "text", text: "سلام" },
+    ];
+    const before = await convertToModelMessages([
+      { id: "m1", role: "assistant", parts },
+    ] as never);
+    expect(JSON.stringify(before)).toContain(SECRET);
+    const after = await convertToModelMessages([
+      { id: "m1", role: "assistant", parts: scrubParts(parts) },
+    ] as never);
+    expect(JSON.stringify(after)).not.toContain(SECRET);
+  });
+
+  it("still redacts plain text parts", async () => {
+    const part = { type: "text", text: `AWS_SECRET_ACCESS_KEY=${SECRET}` };
+    expect(await modelJson([part])).toContain(SECRET);
+    expect(await modelJson(scrubParts([part]))).not.toContain(SECRET);
+  });
+
+  it("keeps every part and every structural discriminant", () => {
+    const parts = [
+      { type: "text", text: "a" },
+      { type: "file", mediaType: "text/plain", url: "data:text/plain,b" },
+      { type: "reasoning", text: "c" },
+      { type: "some-future-part", payload: { note: "d" } },
+    ];
+    const out = scrubParts(parts);
+    expect(out).toHaveLength(4);
+    expect(out.map((p) => p.type)).toEqual([
+      "text",
+      "file",
+      "reasoning",
+      "some-future-part",
+    ]);
+    expect(out[1].mediaType).toBe("text/plain");
   });
 });
