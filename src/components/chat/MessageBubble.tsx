@@ -5,6 +5,7 @@ import { CodeBlock } from "./CodeBlock";
 import { SourceBadges } from "./SourceBadges";
 import { Chip } from "./Chip";
 import type { Message } from "@/lib/mock";
+import { bidi } from "@/lib/bidi";
 
 type Props = {
   message: Message;
@@ -17,7 +18,20 @@ export function MessageBubble({ message, streaming, onSuggestion }: Props) {
     return (
       <div className="animate-rise flex justify-start">
         <div className="max-w-[85%] rounded-2xl rounded-tr-sm border border-line-2 bg-surface px-4 py-3 text-[15px] leading-7 text-ink">
-          <div className="whitespace-pre-wrap">{message.content}</div>
+          {/* Per line, not per message: a pasted log is Latin while the
+              question above it is Persian, and dir="auto" resolves each
+              from its own first strong character. */}
+          {message.content.split("\n").map((line, i) => (
+            <div
+              key={i}
+              dir="auto"
+              className={line.trim() ? "whitespace-pre-wrap" : "h-3"}
+            >
+              {/* dir="auto" fixes the line's base direction; bidi() still has
+                  to isolate Latin runs within an RTL line. */}
+              {bidi(line, `l${i}`)}
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -130,7 +144,8 @@ function inline(text: string): ReactNode[] {
   let key = 0;
 
   while ((m = re.exec(text))) {
-    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m.index > last)
+      out.push(...bidi(text.slice(last, m.index), `i${key++}`));
     if (m[1]) {
       out.push(
         <strong key={key++} className="font-semibold text-ink">
@@ -149,6 +164,6 @@ function inline(text: string): ReactNode[] {
     }
     last = re.lastIndex;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) out.push(...bidi(text.slice(last), `i${key++}`));
   return out;
 }

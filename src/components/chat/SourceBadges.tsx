@@ -1,4 +1,5 @@
 import type { Source } from "@/lib/mock";
+import { bidi } from "@/lib/bidi";
 
 export function SourceBadges({ sources }: { sources: Source[] }) {
   if (!sources.length) return null;
@@ -15,7 +16,7 @@ export function SourceBadges({ sources }: { sources: Source[] }) {
             rel="noopener noreferrer"
             className="group inline-flex max-w-full items-center gap-1.5 rounded-lg border border-line bg-surface-2/70 px-2.5 py-1.5 text-xs text-ink-2 transition-colors hover:border-brand/40 hover:bg-brand/[0.06] hover:text-ink"
           >
-            <span className="truncate">{s.title}</span>
+            <span className="truncate">{bidi(s.title, s.url)}</span>
             <ExternalLink />
           </a>
         ))}
