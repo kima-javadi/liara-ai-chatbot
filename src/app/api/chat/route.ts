@@ -85,13 +85,14 @@ export async function POST(req: Request) {
         });
       }
 
+      // The retrieved context rides in `instructions`, not as a system message:
+      // AI SDK v7 rejects role "system" inside `messages` outright. Appending
+      // it here also keeps the grounding ahead of the conversation, so a long
+      // chat cannot push the documentation out of the model's attention.
       const result = streamText({
         model: chatModel(),
-        instructions: SYSTEM_PROMPT,
-        messages: [
-          ...modelMessages,
-          { role: "system" as const, content: buildContext(hits) },
-        ],
+        instructions: `${SYSTEM_PROMPT}\n\n${buildContext(hits)}`,
+        messages: modelMessages,
       });
 
       // sendStart: false because the source-url parts above already opened
