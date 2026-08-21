@@ -44,6 +44,15 @@ const MAX_BODY_BYTES = 128 * 1024;
  * no provenance, so a caller who simply omits `x-forwarded-for` could forge it
  * and reopen the same bypass. With no forwarded-for header the request did not
  * arrive through the expected proxy, so it shares one conservative bucket.
+ *
+ * That bucket is not a practical availability risk here: Liara's own platform
+ * documentation states that every request reaches the container through their
+ * reverse proxy, and their per-framework TrustedProxies guides read the client
+ * address out of `x-forwarded-for` (see paas/flask/how-tos/set-trusted-proxies
+ * and paas/nodejs/how-tos/configure-trusted-proxy/about). One hop, header
+ * always present. Note that those same guides take `split(',')[0]` — the
+ * left-most, client-controlled entry — which is exactly the bypass above; this
+ * function deliberately does not follow that example.
  */
 function clientIp(req: Request): string {
   const fwd = req.headers.get("x-forwarded-for");
