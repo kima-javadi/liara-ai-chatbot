@@ -132,10 +132,35 @@ describe("search", () => {
       }
     });
 
+    // Asserted on what the user sees — the pages retrieved — rather than on
+    // the query string's shape. An earlier version of this test pinned the
+    // exact concatenation `${previous} ${followUp}`, so it failed the moment
+    // the current turn was up-weighted even though the behaviour it is named
+    // for was still correct.
     it("does not carry config intent forward from the previous turn", () => {
       const previous = "برای پروژه Flask من یک liara.json بساز";
       const followUp = "چطور به دیتابیس MySQL وصل شوم؟";
-      expect(retrievalQuery(followUp, previous)).toBe(`${previous} ${followUp}`);
+      const query = retrievalQuery(followUp, previous);
+
+      // No enrichment fired: the config-only vocabulary is absent.
+      expect(query).not.toContain("فیلد");
+      expect(query).not.toContain("پیکربندی");
+
+      // And the follow-up actually retrieves MySQL documentation.
+      const top = search(query, 3);
+      expect(top.length).toBeGreaterThan(0);
+      expect(top[0].chunk.url).toContain("mysql");
+      expect(top.some((h) => h.chunk.url.includes("liarajson"))).toBe(false);
+    });
+
+    // The reason the previous turn is folded in at all: a follow-up that is
+    // pure anaphora has no searchable signal of its own.
+    it("still uses the previous turn to resolve a context-free follow-up", () => {
+      const top = search(
+        retrievalQuery("چطور رفعش کنم؟", "خطای 502 bad gateway دارم"),
+        1,
+      );
+      expect(top[0].chunk.url).toContain("502-bad-gateway");
     });
 
     // These four are the retrieval anchors the branch is measured against;
