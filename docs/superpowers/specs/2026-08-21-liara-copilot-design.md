@@ -140,9 +140,20 @@ unless they contain code.
 therefore never needs the docs checkout, and `liara deploy` remains a single
 command with no extra build inputs.
 
-Expected size is 15–25 MB. If it materially exceeds that, the mitigations, in
-order, are: drop nav and footer boilerplate, then drop `<Asciinema>` and
-image-only chunks, then gzip the artifact and decompress on load.
+Measured against the real corpus (2026-08-21 spike): 1,143 files produce
+2,873 section chunks plus an estimated 1,067 tab-derived chunks, for roughly
+3,940 total, carrying 3,626 code blocks. The artifact is **5.4 MB raw, 0.96 MB
+gzipped**. All 1,143 derived URLs were well-formed and no chunk leaked raw
+MDX, confirming the mask-code-before-strip ordering. At this size the artifact
+is committed as plain JSON with no size mitigations required.
+
+Two ingestion details the spike surfaced:
+
+- Page titles carry site boilerplate (`مستندات … - لیارا`). Strip the leading
+  `مستندات ` and the trailing ` - لیارا` so the boilerplate does not inflate
+  term frequencies across every document.
+- Some `<Section>` tags carry no `title` attribute. Section titles need a
+  positional fallback rather than assuming one title per split boundary.
 
 ## 5. Retrieval
 
@@ -168,7 +179,7 @@ stemming errors on technical text tend to be worse than no stemming.
 
 Standard BM25 (`k1=1.2`, `b=0.75`) over the chunk corpus. The index is built
 once in module scope on first request and reused for the process lifetime.
-Build time over ~8k chunks is expected to be well under a second and happens
+Build time over ~3,900 chunks is well under a second and happens
 on a single cold request, not on every request.
 
 Top 6 chunks are injected into the prompt. Chunks from the same page are
