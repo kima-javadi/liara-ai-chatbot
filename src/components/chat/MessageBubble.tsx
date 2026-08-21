@@ -4,8 +4,17 @@ import type { ReactNode } from "react";
 import { CodeBlock } from "./CodeBlock";
 import { SourceBadges } from "./SourceBadges";
 import { Chip } from "./Chip";
-import type { Message } from "@/lib/mock";
 import { bidi } from "@/lib/bidi";
+
+export type Source = { title: string; url: string };
+
+export type Message = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources?: Source[];
+  suggestions?: string[];
+};
 
 type Props = {
   message: Message;

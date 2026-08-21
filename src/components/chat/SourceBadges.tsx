@@ -1,4 +1,4 @@
-import type { Source } from "@/lib/mock";
+import type { Source } from "./MessageBubble";
 import { bidi } from "@/lib/bidi";
 
 export function SourceBadges({ sources }: { sources: Source[] }) {
