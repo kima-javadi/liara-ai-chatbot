@@ -37,7 +37,36 @@ export type Bm25Index = {
  * match count of a term that only occurs in `code[]`, which pushes that
  * term's contribution down relative to chunks that genuinely match in prose.
  *
- * Weights (title 4x, section 3x, prose 2x, platform/code 1x) were chosen by
+ * IMPORTANT — the constants below are NOT the effective weights.
+ * `scripts/ingest.mjs:333` writes each chunk's `text` as
+ * `[pageTitle, sectionTitle, platform, slice].join(" — ")`, so the titles are
+ * already inside `chunk.text` before this function ever sees it. Multiplying
+ * `text` by TEXT_WEIGHT therefore double-counts them. Verified over the
+ * committed corpus: 4,050/4,050 chunks have `text.startsWith(pageTitle)` and
+ * 1,793/1,793 sectioned chunks contain `pageTitle — sectionTitle` inside
+ * `text`. Counting tokens in the real documentText() output for chunk
+ * `https://docs.liara.ir/ai/about#1-0`, whose section title is
+ * "API لیارا، از چه مدل‌هایی پشتیبانی می‌کند؟", the token `پشتیبانی` occurs 5
+ * times against a declared SECTION_WEIGHT of 3, and the page-title tokens
+ * occur 10 times against a declared TITLE_WEIGHT of 4.
+ *
+ * So the effective floors are:
+ *
+ *   title    TITLE_WEIGHT + TEXT_WEIGHT = 6x   (declared 4x)
+ *   section  SECTION_WEIGHT + TEXT_WEIGHT = 5x (declared 3x)
+ *   prose    TEXT_WEIGHT = 2x
+ *   platform 1x (plus 1x from the text prefix where ingest emitted one)
+ *
+ * — plus whatever the term genuinely occurs in the prose, which is why the
+ * measured counts above run higher than the floors. The same double-count
+ * inflates `lengths[i]`, so the length-normalization argument two paragraphs
+ * up is computed on those inflated lengths too. The constants are left exactly
+ * as they are: the retrieval behaviour they produce is measured and working,
+ * and re-tuning them is a separate exercise. This note exists so the next
+ * person to touch them knows they are turning a 6/5/2 knob, not a 4/3/2 one.
+ *
+ * The sweep recorded below was therefore a sweep over 6/5/2, not 4/3/2:
+ * the constants (title 4x, section 3x, prose 2x, platform/code 1x) were chosen by
  * measuring the 10 keyword-shaped smoke queries plus a set of sentence-shaped
  * ones (search.test.ts) at several multiplier combinations:
  *  - 1x everywhere (no weighting) reproduces the reported defect.
