@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Liara Copilot
 
-## Getting Started
+دستیار هوش مصنوعی برای استقرار، پیکربندی و عیب‌یابی برنامه‌ها روی ابر لیارا،
+مبتنی بر مستندات رسمی لیارا.
 
-First, run the development server:
+An AI assistant for deploying, configuring, and troubleshooting applications on
+Liara Cloud, grounded in Liara's official documentation.
+
+## How it works
+
+A build-time script parses Liara's MDX docs into a committed JSON chunk index.
+Each request is rate-limited by IP, scrubbed of secrets, matched against the
+index with BM25, and answered by an OpenAI-compatible model with the retrieved
+chunks injected into the prompt. Citations come from chunk metadata, never from
+model output, so a cited link always points at a page that actually exists.
+
+## Setup
 
 ```bash
+npm install
+cp .env.example .env.local   # fill in AI_BASE_URL, AI_API_KEY, AI_MODEL
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Regenerating the docs index
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The index is committed, so this is only needed when the upstream docs change:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+DOCS_PATH=/path/to/liara-docs npm run ingest
+```
 
-## Learn More
+## Tests
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm test
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deployment
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+liara deploy --app <your-app-name>
+```
 
-## Deploy on Vercel
+Set `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL` in the Liara console.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Known limitations
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Rate limiting is in-memory, so it is per instance and resets on deploy.
+- The index is a point-in-time snapshot; doc changes need a re-ingest.
+- BM25 does not match paraphrase, so an unusually worded Persian question may
+  retrieve poorly. Hybrid retrieval is the first planned improvement.
+- No conversation persistence; reloading clears the chat.
