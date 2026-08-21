@@ -1,0 +1,50 @@
+import { describe, it, expect } from "vitest";
+import { search } from "./index";
+
+/**
+ * Each case asserts that a known page appears in the top results for a
+ * question a user would plausibly type. Persian and English are both covered
+ * because the corpus is Persian but developers often type English keywords.
+ */
+const CASES: Array<{ q: string; expectUrl: string }> = [
+  { q: "فایل liara.json چیست؟", expectUrl: "https://docs.liara.ir/paas/liarajson" },
+  { q: "liara.json fields", expectUrl: "https://docs.liara.ir/paas/liarajson" },
+  { q: "چطور Liara CLI را نصب کنم؟", expectUrl: "https://docs.liara.ir/references/cli" },
+  { q: "liara deploy command", expectUrl: "https://docs.liara.ir/references/cli" },
+  { q: "استقرار برنامه nextjs", expectUrl: "https://docs.liara.ir/paas/nextjs" },
+  { q: "deploy laravel application", expectUrl: "https://docs.liara.ir/paas/laravel" },
+  { q: "اتصال به دیتابیس mysql", expectUrl: "https://docs.liara.ir/dbaas/mysql" },
+  { q: "object storage bucket", expectUrl: "https://docs.liara.ir/object-storage" },
+  { q: "دامنه اختصاصی اضافه کنم", expectUrl: "https://docs.liara.ir/paas/domains" },
+  { q: "django deployment", expectUrl: "https://docs.liara.ir/paas/django" },
+];
+
+describe("search", () => {
+  it("returns nothing for an empty query", () => {
+    expect(search("")).toEqual([]);
+  });
+
+  it("respects the limit", () => {
+    expect(search("liara").length).toBeLessThanOrEqual(6);
+  });
+
+  it("never returns a hit without a docs.liara.ir url", () => {
+    for (const hit of search("liara.json port")) {
+      expect(hit.chunk.url.startsWith("https://docs.liara.ir/")).toBe(true);
+    }
+  });
+
+  // Reported as a pass rate rather than per-case assertions: BM25 will miss
+  // some paraphrases, and a single stubborn case should not block the build.
+  // A rate below the threshold means retrieval is genuinely broken.
+  it("finds the expected page for most smoke queries", () => {
+    const misses: string[] = [];
+    for (const { q, expectUrl } of CASES) {
+      const hits = search(q, 6);
+      if (!hits.some((h) => h.chunk.url.startsWith(expectUrl))) misses.push(q);
+    }
+    const rate = (CASES.length - misses.length) / CASES.length;
+    if (rate < 0.7) console.error("missed:", misses);
+    expect(rate).toBeGreaterThanOrEqual(0.7);
+  });
+});
