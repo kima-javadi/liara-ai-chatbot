@@ -163,52 +163,35 @@ function enrichment(base: string): string {
 }
 
 /**
- * Weight of the current message against the previous one in the folded query.
+ * The current turn is folded in at EQUAL weight with the previous one.
  *
- * Folding the previous message in at equal weight let it outvote the current
- * one: after "برای اپلیکیشن Flask من یک liara.json بساز", the follow-up
- * "چطور به دیتابیس MySQL وصل شوم؟" returned a Flask/SQLite page and four
- * liara.json chunks — not one MySQL page. BM25 scores a bag of words, so the
- * fix is to weight the turn the user actually asked, not to drop the context.
+ * An earlier revision up-weighted the current message 3x, to stop the previous
+ * turn outvoting it. That was overfitted: the multiplier was chosen on the same
+ * six exchanges it was measured against. Re-measured on a set that separates
+ * the two kinds of follow-up — anaphoric ("نمونه‌اش را نشان بده", which has no
+ * searchable content of its own) from contentful ("چطور به دیتابیس MySQL وصل
+ * شوم؟", which does:
  *
- * Measured over 6 two-turn exchanges against the real index:
+ *   weight 1 -> anaphoric 4/4, contentful 2/3, total 6/7   <- chosen
+ *   weight 2 -> anaphoric 3/4, contentful 2/3, total 5/7
+ *   weight 3 -> anaphoric 2/4, contentful 3/3, total 5/7
  *
- *   current x1 (equal)  -> 3/6 correct top-1
- *   current x2          -> 3/6
- *   current x3          -> 4/6   <- chosen; smallest multiplier that gets there
- *   current x4, x6      -> 4/6, no further gain
+ * Up-weighting trades the anaphoric class away to buy the contentful one, and
+ * the anaphoric class is precisely what folding the previous turn exists to
+ * serve. At weight 3 "تنظیم cron job در لیارا" / "نمونه‌اش را نشان بده"
+ * retrieves dbaas/mysql/create-user; at weight 1 it retrieves set-cron-job.
  *
- * At x3 the MySQL follow-up returns dbaas/mysql/how-tos/connect-via-platform/
- * flask — better than dropping the previous message entirely (which yields the
- * generic .../php page), because the carried context still picks the Flask
- * variant of the right page. That is the behaviour this fold exists for.
- *
- * The two cases still missing at x3 are not caused by folding: "how do I add a
- * disk?" retrieves the same wrong page with no context at all (an English-query
- * weakness against Persian prose — "disk" vs "دیسک"), and "برای Laravel چطور؟"
- * after a config request returns liara.json, which is a defensible reading of
- * "and for Laravel?".
- */
-const CURRENT_TURN_WEIGHT = 3;
-
-/**
- * The retrieval query. The previous user message is folded in because
- * retrieval runs on every turn without conversation awareness, and a follow-up
- * like "برای Laravel چطور؟" carries almost no searchable signal on its own —
- * but at reduced weight, per CURRENT_TURN_WEIGHT.
- *
- * Config intent is read from the CURRENT message only. Reading it from the
- * folded pair meant one config request enriched the *next* question too, so a
- * "how do I connect to MySQL?" straight after retrieved no MySQL docs at all.
- *
- * The enrichment budget is likewise sized from the current message alone. Sizing
- * it from the folded, already-repeated text would scale the enrichment with both
- * the repetition factor and the previous turn's length — reintroducing the
- * domination that ENRICHMENT_BUDGET_RATIO exists to prevent.
+ * KNOWN MISS at weight 1: "چطور به دیتابیس MySQL وصل شوم؟" straight after a
+ * liara.json request retrieves paas/flask/how-tos/connect-to-db/sqlite rather
+ * than a MySQL page — the previous turn's own tokens, not the config
+ * enrichment (which correctly no longer fires), still dominate. Separating
+ * those two classes needs the query's discriminative power against the corpus,
+ * not a fixed multiplier; token count does not distinguish them (both are 4
+ * tokens) and neither does document frequency (the anaphoric words are
+ * themselves rare). Left as a measured, documented miss rather than tuned away.
  */
 export function retrievalQuery(current: string, previous?: string): string {
-  const weighted = Array(CURRENT_TURN_WEIGHT).fill(current).join(" ");
-  const base = previous ? `${weighted} ${previous}` : current;
+  const base = previous ? `${previous} ${current}` : current;
   return isConfigGenerationIntent(current)
     ? `${base} ${enrichment(current)}`
     : base;

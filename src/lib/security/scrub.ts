@@ -87,14 +87,31 @@ const STRUCTURAL_KEYS = new Set([
   "callProviderMetadata",
 ]);
 
-function scrubDeep(value: unknown): unknown {
+/**
+ * Recursion ceiling.
+ *
+ * The walk follows attacker-shaped JSON: a body well inside the route's size
+ * cap can still nest tens of thousands of arrays deep, which overflowed the
+ * stack and turned a scrub into an unhandled 500. A legitimate UIMessage part
+ * nests a handful of levels, so anything past this depth is not real content.
+ *
+ * Over-depth values are REPLACED, never passed through. Returning the value
+ * unscrubbed would hand an attacker a way to smuggle a secret past the
+ * scrubber by burying it deep enough, which is the whole thing this module
+ * exists to prevent.
+ */
+const MAX_DEPTH = 64;
+const TOO_DEEP = "[REDACTED]";
+
+function scrubDeep(value: unknown, depth = 0): unknown {
+  if (depth > MAX_DEPTH) return TOO_DEEP;
   if (typeof value === "string") return scrub(value);
-  if (Array.isArray(value)) return value.map(scrubDeep);
+  if (Array.isArray(value)) return value.map((v) => scrubDeep(v, depth + 1));
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value).map(([k, v]) => [
         k,
-        STRUCTURAL_KEYS.has(k) ? v : scrubDeep(v),
+        STRUCTURAL_KEYS.has(k) ? v : scrubDeep(v, depth + 1),
       ]),
     );
   }

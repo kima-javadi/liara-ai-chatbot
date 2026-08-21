@@ -151,3 +151,31 @@ describe("scrubParts", () => {
     expect(out[1].mediaType).toBe("text/plain");
   });
 });
+
+describe("scrubDeep depth limit", () => {
+  // A body well inside the route's 128KB cap can still nest deeply enough to
+  // overflow the stack. Before the depth cap this threw RangeError, which the
+  // route surfaced as an unhandled 500.
+  function nest(depth: number, leaf: unknown): unknown {
+    let v = leaf;
+    for (let i = 0; i < depth; i++) v = [v];
+    return v;
+  }
+
+  it("does not throw on pathologically nested input", () => {
+    expect(() => scrubParts([nest(30_000, "hello")])).not.toThrow();
+  });
+
+  it("redacts rather than passes through content buried past the limit", () => {
+    const secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD";
+    const out = JSON.stringify(scrubParts([nest(30_000, secret)]));
+    expect(out).not.toContain(secret);
+  });
+
+  it("still scrubs normally at realistic nesting depth", () => {
+    const secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD";
+    const out = JSON.stringify(scrubParts([nest(5, secret)]));
+    expect(out).not.toContain(secret);
+    expect(out).toContain("[REDACTED]");
+  });
+});

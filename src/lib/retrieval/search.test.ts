@@ -133,34 +133,62 @@ describe("search", () => {
     });
 
     // Asserted on what the user sees — the pages retrieved — rather than on
-    // the query string's shape. An earlier version of this test pinned the
-    // exact concatenation `${previous} ${followUp}`, so it failed the moment
-    // the current turn was up-weighted even though the behaviour it is named
-    // for was still correct.
+    // the query string's shape. An earlier version pinned the exact
+    // concatenation `${previous} ${followUp}` and failed on an unrelated
+    // change even though the behaviour it is named for was still correct.
+    //
+    // Deliberately scoped to the ENRICHMENT not carrying forward. It does not
+    // assert which page wins: that depends on how the two turns are weighted,
+    // and pinning it here turned this into a tuning pin under a misleading
+    // name — a red test for anyone legitimately changing the fold.
     it("does not carry config intent forward from the previous turn", () => {
       const previous = "برای پروژه Flask من یک liara.json بساز";
       const followUp = "چطور به دیتابیس MySQL وصل شوم؟";
       const query = retrievalQuery(followUp, previous);
 
-      // No enrichment fired: the config-only vocabulary is absent.
       expect(query).not.toContain("فیلد");
       expect(query).not.toContain("پیکربندی");
-
-      // And the follow-up actually retrieves MySQL documentation.
-      const top = search(query, 3);
-      expect(top.length).toBeGreaterThan(0);
-      expect(top[0].chunk.url).toContain("mysql");
-      expect(top.some((h) => h.chunk.url.includes("liarajson"))).toBe(false);
+      expect(query.match(/liara\.json/g) ?? []).toHaveLength(1);
     });
 
     // The reason the previous turn is folded in at all: a follow-up that is
-    // pure anaphora has no searchable signal of its own.
-    it("still uses the previous turn to resolve a context-free follow-up", () => {
-      const top = search(
-        retrievalQuery("چطور رفعش کنم؟", "خطای 502 bad gateway دارم"),
-        1,
-      );
-      expect(top[0].chunk.url).toContain("502-bad-gateway");
+    // pure anaphora has no searchable signal of its own, so dropping or
+    // out-weighting the previous turn strands it. Up-weighting the current
+    // turn 3x sent the first of these to dbaas/mysql/create-user.
+    it("resolves anaphoric follow-ups from the previous turn", () => {
+      const ANAPHORIC: Array<[previous: string, followUp: string, expect: string]> = [
+        ["تنظیم cron job در لیارا", "نمونه‌اش را نشان بده", "set-cron-job"],
+        ["خطای 502 bad gateway دارم", "چطور رفعش کنم؟", "502-bad-gateway"],
+        ["گرفتن بکاپ از دیتابیس MongoDB", "چطور بازیابی کنم؟", "mongodb"],
+      ];
+      for (const [previous, followUp, expected] of ANAPHORIC) {
+        const top = search(retrievalQuery(followUp, previous), 1)[0];
+        expect(top?.chunk.url, `${previous} -> ${followUp}`).toContain(expected);
+      }
+    });
+
+    // Covers cause (b) of the enrichment defect, which had no test at all:
+    // the intent detection can be perfectly correct and the enrichment still
+    // ruin the query by sheer volume. Raising ENRICHMENT_BUDGET_FLOOR to 100,
+    // or restoring the old fixed 22 tokens, left the whole suite green.
+    it("keeps enrichment from outweighing the user's own words", () => {
+      // Asserted behaviourally, not as a token budget: "liara.json" expands to
+      // four tokens, so a raw added-token count says little about influence.
+      // What matters is that the user's own words still select the candidate
+      // set. Raising ENRICHMENT_BUDGET_FLOOR to 100 or restoring the old fixed
+      // 22 tokens fails both assertions below.
+      for (const [q, framework] of [
+        ["برای اپلیکیشن Flask من یک liara.json بساز", "flask"],
+        ["یک فایل کانفیگ برای برنامه Django بساز", "django"],
+      ] as const) {
+        const urls = search(retrievalQuery(q), 6).map((h) => h.chunk.url);
+
+        // The framework the user actually named survives the enrichment.
+        expect(urls.some((u) => u.includes(framework)), q).toBe(true);
+
+        // And enrichment has not collapsed the whole result set onto one page.
+        expect(new Set(urls).size, q).toBeGreaterThan(1);
+      }
     });
 
     // These four are the retrieval anchors the branch is measured against;
