@@ -1,4 +1,5 @@
 import type { SearchHit } from "@/lib/retrieval";
+import { tokenize } from "@/lib/retrieval/tokenize";
 
 export const CHIP_MARKER_OPEN = "<<<NEXT:";
 export const CHIP_MARKER_CLOSE = ">>>";
@@ -53,70 +54,119 @@ export function buildContext(hits: SearchHit[]): string {
 }
 
 /**
- * Matches a request to generate/create a liara.json (or "a config file"),
- * in Persian or English. This is intentionally broad — it OR's together the
- * config-noun words (liara.json, کانفیگ, پیکربندی, config) with the common
- * generation verbs (بساز, generate, setup, ایجاد) — because a false positive
- * here only appends extra vocabulary to the retrieval query (see
- * CONFIG_FIELD_VOCAB below); it can pull in the liarajson page as a
- * plausible additional hit, but it cannot forge a top-1 win for it against a
- * query that shares none of that vocabulary. None of it fires on the 15
- * smoke cases in search.test.ts.
+ * Detects a request to *generate* a config file (a liara.json, or "a config
+ * file"), in Persian or English.
+ *
+ * This used to OR the config nouns together with the generation verbs, on the
+ * theory that a false positive could only add vocabulary and never win a
+ * ranking. That theory was wrong and measurably so: "how to setup a redis
+ * database" fired on the bare word `setup`, and the enrichment then took the
+ * entire top-6 from Redis restore-backup pages to paas/liarajson, with zero
+ * Redis documentation retrieved. So both halves are now required, and both are
+ * narrower:
+ *
+ *  - the noun must actually name a config file. Bare `config` is gone —
+ *    "config nginx for laravel" is a request about nginx, not about
+ *    liara.json.
+ *  - the verb must actually ask for something to be produced, and `setup`
+ *    only counts alongside one of those nouns.
+ *
+ * They must also appear near each other, so a long message that happens to
+ * mention a liara.json in one paragraph and "create a database" in another
+ * does not trip it.
  */
-const CONFIG_INTENT_RE =
-  /liara\.json|کانفیگ|پیکربندی|\bconfig\b|بساز|\bایجاد\b|generate|\bsetup\b/i;
+const CONFIG_NOUN_RE =
+  /liara\.json|کانفیگ|پیکربندی|config(?:uration)?[ -]file|فایل\s+config/gi;
+const GEN_VERB_RE =
+  /بساز|بنویس|تولید\s*کن|ایجاد\s*کن|\bgenerate\b|\bcreate\b|\bscaffold\b|\bwrite\b|\bmake\b|\bset\s?up\b/gi;
+
+/** Max characters between the verb and the noun for them to count as one request. */
+const INTENT_PROXIMITY = 60;
+
+function matchOffsets(re: RegExp, text: string): number[] {
+  re.lastIndex = 0;
+  const out: number[] = [];
+  for (const m of text.matchAll(re)) out.push(m.index);
+  return out;
+}
 
 function isConfigGenerationIntent(text: string): boolean {
-  return CONFIG_INTENT_RE.test(text);
+  const nouns = matchOffsets(CONFIG_NOUN_RE, text);
+  if (!nouns.length) return false;
+  const verbs = matchOffsets(GEN_VERB_RE, text);
+  return verbs.some((v) => nouns.some((n) => Math.abs(v - n) <= INTENT_PROXIMITY));
 }
 
 /**
- * Enrichment terms appended to a config-generation query.
+ * Enrichment terms appended to a config-generation query, as explicit weights.
  *
  * Retrieval here is per-chunk, not per-page (see bm25.ts), so a page-level
  * signal has to be reconstructed from terms every chunk of the liarajson
- * page actually shares. Two do:
+ * page actually shares. Three do:
  *
  *  - "liara.json" itself: every one of the page's ~67 chunks repeats it in
- *    pageTitle ("آشنایی با فایل liara.json", weight 4x), so it is the
- *    strongest identifier of "this is the reference page" available without
- *    touching bm25.ts.
+ *    pageTitle, so it is the strongest identifier of "this is the reference
+ *    page" available without touching bm25.ts.
  *  - "فیلد" ("field"): the page's per-field chunks are titled "فیلد app",
- *    "فیلد platform", "فیلد port", etc. (section weight 3x) — the exact
- *    chunks that carry the real JSON examples a config-generation answer
- *    needs.
- *  - "پیکربندی" ("configuration"): reinforces the "generate/configure"
- *    framing without being specific to any one field.
+ *    "فیلد platform", "فیلد port" — the exact chunks that carry the real JSON
+ *    examples a config-generation answer needs. Kept in preference to the
+ *    field names themselves (platform, port, app, ...), which are common
+ *    English words that pulled per-framework quick-starts up instead.
+ *  - "پیکربندی" ("configuration"): reinforces the framing without being
+ *    specific to any one field.
  *
- * An earlier version of this list also spelled out the field names
- * themselves (platform, port, app, disks, cron, ...). That measurably
- * backfired: those are common English words that also appear throughout
- * ordinary per-framework quick-start walkthroughs (which set up a port, an
- * app id, etc. as part of deploying, not as reference material), so adding
- * them pulled quick-start pages above the liarajson page instead of below
- * it, and on "liara.json port" it flipped the anchor's top-1 away from
- * paas/liarajson entirely. "فیلد" was kept instead of the field names
- * because it appears in the *reference* page's section titles but rarely in
- * prose that merely uses those fields. See search.test.ts's
- * "config-generation intent" cases for the queries this is measured against.
+ * The weights are RELATIVE, not absolute. A fixed 22 repeated tokens appended
+ * to a 5-token question outscored the user's own words about ten to one and
+ * collapsed the whole top-6 onto one page — the enrichment stopped being a
+ * re-ranking signal and became the query. The budget is therefore scaled to
+ * the length of the base query (see ENRICHMENT_BUDGET_RATIO), so enrichment
+ * can reorder the candidate set the user's words select but never replace it.
  */
-const CONFIG_FIELD_VOCAB = [
-  ...Array(8).fill("liara.json"),
-  ...Array(4).fill("پیکربندی"),
-  ...Array(10).fill("فیلد"),
-].join(" ");
+const CONFIG_ENRICHMENT: Array<[term: string, share: number]> = [
+  ["liara.json", 8],
+  ["پیکربندی", 4],
+  ["فیلد", 10],
+];
+const ENRICHMENT_SHARE_TOTAL = CONFIG_ENRICHMENT.reduce((a, [, w]) => a + w, 0);
+
+/**
+ * Total enrichment weight: one unit per token the user actually typed, with a
+ * floor so that a very short request ("یک کانفیگ برای برنامه Go بساز",
+ * 4 tokens) still carries enough signal to reorder anything.
+ *
+ * Both numbers were measured, not guessed. Sweeping the budget over the four
+ * config-generation phrasings against the real index:
+ *
+ *   budget = tokens          → 2 of 4 rank paas/liarajson first
+ *   budget = max(8, tokens)  → 4 of 4, and it is the smallest floor that does
+ *   budget = 2 x tokens      → 4 of 4, at roughly double the enrichment weight
+ *
+ * The previous fixed 22 tokens is what let the enrichment dominate; at
+ * max(8, tokens) an 11-token request gets 11, not 22.
+ */
+const ENRICHMENT_BUDGET_RATIO = 1;
+const ENRICHMENT_BUDGET_FLOOR = 8;
+
+function enrichment(base: string): string {
+  const budget = Math.max(
+    ENRICHMENT_BUDGET_FLOOR,
+    Math.round(tokenize(base).length * ENRICHMENT_BUDGET_RATIO),
+  );
+  return CONFIG_ENRICHMENT.flatMap(([term, share]) =>
+    Array(Math.max(1, Math.round((budget * share) / ENRICHMENT_SHARE_TOTAL))).fill(term),
+  ).join(" ");
+}
 
 /**
  * The retrieval query. The previous user message is folded in because
  * retrieval runs on every turn without conversation awareness, and a follow-up
  * like "برای Laravel چطور؟" carries almost no searchable signal on its own.
  *
- * When the combined query looks like a request to generate a config file,
- * the liara.json field vocabulary is appended (not substituted) so the
- * reference page's field chunks outrank incidental per-framework mentions —
- * see CONFIG_FIELD_VOCAB.
+ * Config intent is read from the CURRENT message only. Reading it from the
+ * folded pair meant one config request enriched the *next* question too, so a
+ * "how do I connect to MySQL?" straight after retrieved no MySQL docs at all.
  */
 export function retrievalQuery(current: string, previous?: string): string {
   const base = previous ? `${previous} ${current}` : current;
-  return isConfigGenerationIntent(base) ? `${base} ${CONFIG_FIELD_VOCAB}` : base;
+  return isConfigGenerationIntent(current) ? `${base} ${enrichment(base)}` : base;
 }

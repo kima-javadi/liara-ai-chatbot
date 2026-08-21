@@ -97,6 +97,61 @@ describe("search", () => {
       }
     });
 
+    // The defect this block guards: the intent regex used to OR the config
+    // nouns with bare generation verbs, so "how to setup a redis database"
+    // fired on `setup` and the enrichment replaced the entire top-6 with
+    // paas/liarajson — zero Redis docs for a Redis question. Each case names
+    // the page the query is genuinely about and asserts liarajson is nowhere
+    // near the top.
+    const NON_CONFIG_CASES: Array<{ q: string; expectUrl: string }> = [
+      { q: "how to setup a redis database", expectUrl: "https://docs.liara.ir/dbaas/redis" },
+      { q: "چطور یک دیتابیس MySQL بسازم", expectUrl: "https://docs.liara.ir/dbaas/mysql" },
+      { q: "setup a postgres backup", expectUrl: "https://docs.liara.ir/dbaas/redis/how-tos/restore-backup" },
+      { q: "setup nginx reverse proxy", expectUrl: "https://docs.liara.ir/paas/docker/related-apps/nginx" },
+      { q: "generate an SSH key for my VM", expectUrl: "https://docs.liara.ir/iaas" },
+      { q: "یک دیسک برای برنامه بساز", expectUrl: "https://docs.liara.ir/paas/" },
+    ];
+
+    it("does not hijack a query that has a generation verb but no config noun", () => {
+      for (const { q, expectUrl } of NON_CONFIG_CASES) {
+        const hits = search(retrievalQuery(q), 6);
+        expect(hits[0]?.chunk.url, `top-1 for: ${q}`).toContain(expectUrl);
+        for (const h of hits.slice(0, 3)) {
+          expect(h.chunk.url, `liarajson should not be top-3 for: ${q}`).not.toContain(
+            "/paas/liarajson",
+          );
+        }
+      }
+    });
+
+    it("does not enrich a config noun that is not a generation request", () => {
+      // "config nginx for laravel" and "کانفیگ ردیس" name a configuration but
+      // ask nothing to be produced; enriching them buried the real answer.
+      for (const q of ["config nginx for laravel", "کانفیگ ردیس", "liara.json port"]) {
+        expect(retrievalQuery(q), q).toBe(q);
+      }
+    });
+
+    it("does not carry config intent forward from the previous turn", () => {
+      const previous = "برای پروژه Flask من یک liara.json بساز";
+      const followUp = "چطور به دیتابیس MySQL وصل شوم؟";
+      expect(retrievalQuery(followUp, previous)).toBe(`${previous} ${followUp}`);
+    });
+
+    // These four are the retrieval anchors the branch is measured against;
+    // none of them may move.
+    it("leaves the four retrieval anchors on their existing top-1 page", () => {
+      const ANCHORS: Array<{ q: string; expectUrl: string }> = [
+        { q: "خطای 502 bad gateway", expectUrl: "https://docs.liara.ir/paas/dotnet/fix-common-errors/502-bad-gateway" },
+        { q: "پورت برنامه را چطور تنظیم کنم", expectUrl: "https://docs.liara.ir/paas/liarajson" },
+        { q: "cron job در لیارا", expectUrl: "https://docs.liara.ir/paas/django/how-tos/set-cron-job" },
+        { q: "liara.json port", expectUrl: "https://docs.liara.ir/paas/liarajson" },
+      ];
+      for (const { q, expectUrl } of ANCHORS) {
+        expect(search(retrievalQuery(q), 6)[0]?.chunk.url, q).toContain(expectUrl);
+      }
+    });
+
     it("leaves unrelated queries unenriched", () => {
       // A plain question with no config-generation signal should not be
       // rewritten, so its ranking behaves exactly as before this change.
