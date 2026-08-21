@@ -130,6 +130,28 @@ function findMatchingBrace(str, openIdx) {
   return -1;
 }
 
+// Keys whose quoted string values are genuine prose worth keeping when a
+// decorative `.map()` array-of-objects literal is erased (a card grid's
+// `desc:`, or occasionally `title:`/`label:`/`text:`/`description:`, holds a
+// real one-sentence feature description). Pure-plumbing keys (`link`, `href`,
+// `alt`, `icon`, `platform`, `lang`, `language`, `image`, `src`) are excluded
+// on purpose — erasing them is correct, not lossy.
+const PROSE_KEY_VALUE =
+  /\b(?:desc|description|text|title|label)\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+
+/**
+ * Pulls every prose-bearing string value out of an array-literal's source
+ * text (before it is erased) and joins them into plain sentence-like text,
+ * so a card grid's feature descriptions survive even though its object/array
+ * syntax does not.
+ */
+function harvestProseValues(arrLiteralText) {
+  const values = [...arrLiteralText.matchAll(PROSE_KEY_VALUE)].map((m) =>
+    m[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim(),
+  ).filter(Boolean);
+  return values.join(". ");
+}
+
 /**
  * Drops every `{ <array-literal-or-identifier-chain>.map(...) }` decorative
  * list render in `text`, whatever the arrow-function's shape. Found by
@@ -140,6 +162,11 @@ function findMatchingBrace(str, openIdx) {
  * brace-depth matching. Matching by depth rather than a shape-specific
  * regex is what makes this robust to `x =>`, `(x) =>`, `(x, i) =>`, and
  * wrapped vs. bare arrow bodies alike.
+ *
+ * Before an array-literal form (`[{...}, {...}].map(...)`) is erased, its
+ * prose-bearing string values (see PROSE_KEY_VALUE) are harvested and
+ * spliced back in as plain text — additive only: syntax is still dropped,
+ * but the sentences it carried are not.
  */
 function stripMapArrayLiterals(text) {
   let out = "";
@@ -149,9 +176,13 @@ function stripMapArrayLiterals(text) {
       let j = i + 1;
       while (j < text.length && /\s/.test(text[j])) j++;
       let exprEnd = -1;
+      let arrLiteral = null;
       if (text[j] === "[") {
         const arrClose = findMatchingBracket(text, j);
-        if (arrClose !== -1) exprEnd = arrClose + 1;
+        if (arrClose !== -1) {
+          exprEnd = arrClose + 1;
+          arrLiteral = text.slice(j, arrClose + 1);
+        }
       } else {
         const m = IDENT_CHAIN.exec(text.slice(j));
         if (m && m[0].length > 0) {
@@ -165,7 +196,8 @@ function stripMapArrayLiterals(text) {
       if (exprEnd !== -1 && /^\s*\.map\(/.test(text.slice(exprEnd))) {
         const braceClose = findMatchingBrace(text, i);
         if (braceClose !== -1) {
-          out += " ";
+          const harvested = arrLiteral ? harvestProseValues(arrLiteral) : "";
+          out += harvested ? ` ${harvested} ` : " ";
           i = braceClose + 1;
           continue;
         }

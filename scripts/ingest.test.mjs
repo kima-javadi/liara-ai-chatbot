@@ -145,6 +145,34 @@ describe("docs index", () => {
     expect(body.length).toBeGreaterThan(300);
   });
 
+  it("never leaks the raw `desc:` key from an erased .map() card-grid literal", () => {
+    // General shape: erasing a `{[{title, icon, desc, link}, ...].map(...)}`
+    // decorative render must not leave its object-literal syntax behind as
+    // prose anywhere in the index — this is the same class of bug as the
+    // other object-key debris checks above, scoped to the key that carries
+    // the harvested-prose feature (see next test).
+    const bad = chunks.filter((c) => /\bdesc:/.test(c.text));
+    expect(bad.map((c) => c.id).slice(0, 5)).toEqual([]);
+  });
+
+  it("harvests prose values (e.g. desc:) out of an erased card-grid .map() array instead of dropping them", () => {
+    // dbaas/details/about's feature grid is `{[{title, icon, desc, link},
+    // ...].map(...)}` — decorative syntax that must be erased, but the
+    // `desc:` string it carried ("امکان ارتباط امن و سریع بین برنامه‌ها و
+    // دیتابیس‌های مرتبط بدون محدودیت", describing the private-network
+    // feature) is genuine prose and must survive as plain text, not vanish
+    // along with the syntax around it.
+    const page = chunks.filter(
+      (c) => c.url === "https://docs.liara.ir/dbaas/details/about",
+    );
+    const hasDesc = page.some((c) =>
+      c.text.includes(
+        "امکان ارتباط امن و سریع بین برنامه‌ها و دیتابیس‌های مرتبط بدون محدودیت",
+      ),
+    );
+    expect(hasDesc).toBe(true);
+  });
+
   it("strips title boilerplate", () => {
     const bad = chunks.filter((c) => / - لیارا$/.test(c.pageTitle));
     expect(bad.map((c) => c.pageTitle).slice(0, 5)).toEqual([]);
