@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { Header } from "@/components/chat/Header";
@@ -13,6 +14,13 @@ import type { Message, Source } from "@/components/chat/MessageBubble";
 // render makes useChat re-subscribe to the in-flight stream, which appends a
 // second assistant message carrying the same source parts.
 const transport = new DefaultChatTransport({ api: "/api/chat" });
+
+/**
+ * How far from the bottom still counts as "at the bottom", in px. Used only
+ * to decide whether a downward gesture has brought the reader back to the
+ * live end of the transcript, which re-arms the follow.
+ */
+const STICK_SLACK = 80;
 
 const QUICK_ACTIONS = [
   { label: "عیب‌یابی لاگ خطا", prompt: "این لاگ خطای استقرار را بررسی کن:\n" },
@@ -49,6 +57,100 @@ export default function Page() {
       suggestions: m.role === "user" ? [] : chips,
     };
   });
+
+  // Autoscroll: stick to the bottom of the page, and re-arm on every new
+  // question.
+  //
+  // A one-shot scroll when the question lands is not enough. Measured in the
+  // real app: sending a second question scrolled to 327px, which WAS the
+  // bottom at that instant — but the answer then streamed in and the page
+  // grew to 1058px, so the reply the user was waiting for arrived below the
+  // fold anyway. Following the growth is the only version of this that keeps
+  // the newest content on screen.
+  //
+  // `stick` is what keeps that from hijacking the page. The scroll listener
+  // re-derives it from distance-to-bottom, so scrolling up to re-read
+  // something stops the follow, and scrolling back down resumes it. That
+  // works because the programmatic scroll below lands within the threshold
+  // of the bottom and so keeps the flag true.
+  //
+  // Instant, not smooth, on purpose: a smooth scroll emits scroll events at
+  // intermediate positions, and the listener would read one of those as "the
+  // user scrolled up" and unstick mid-animation. It also sidesteps the
+  // reduced-motion question entirely.
+  //
+  // The follow is driven by a ResizeObserver rather than by a render effect
+  // keyed on the message text. Keying on text length tracked the stream
+  // correctly but stopped 116px short at the end, every time: the last of the
+  // page's growth — the chip row appearing once splitChips sees a complete
+  // marker, and the streaming caret going away — arrives in a commit where
+  // the text length has already settled, so the effect never re-ran. Watching
+  // the layout instead catches every source of growth without having to
+  // enumerate them. Scrolling does not resize the body, so this cannot loop.
+  const stick = useRef(true);
+  const userTurns = messages.reduce((n, m) => (m.role === "user" ? n + 1 : n), 0);
+
+  useEffect(() => {
+    stick.current = true;
+  }, [userTurns]);
+
+  useEffect(() => {
+    const follow = () => {
+      if (!stick.current) return;
+      window.scrollTo({ top: document.documentElement.scrollHeight });
+    };
+    const observer = new ResizeObserver(follow);
+    observer.observe(document.body);
+    return () => observer.disconnect();
+  }, []);
+
+  // Unstick on an explicit upward gesture, NOT on scroll position.
+  //
+  // Deriving it from distance-to-bottom inside a `scroll` handler looks
+  // simpler and is what this did first, but a `scroll` event carries no hint
+  // of who caused it, and the follow above is itself a scroll — so while the
+  // page was also growing, the handler read its own work as a reader
+  // scrolling away and gave up 593px short of the bottom (measured). A wheel,
+  // a touch drag or a PageUp/Home keypress is unambiguously the human.
+  useEffect(() => {
+    const nearBottom = () =>
+      document.documentElement.scrollHeight - window.scrollY - window.innerHeight <
+      STICK_SLACK;
+
+    const onWheel = (e: WheelEvent) => {
+      // Scrolling back down to the bottom re-arms it, so the reader does not
+      // have to send a new message to get the follow back.
+      stick.current = e.deltaY < 0 ? false : nearBottom();
+    };
+
+    let touchY: number | null = null;
+    const onTouchStart = (e: TouchEvent) => {
+      touchY = e.touches[0]?.clientY ?? null;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY;
+      if (touchY === null || y === undefined) return;
+      // Dragging the content downward reveals what is above: scrolling up.
+      stick.current = y > touchY ? false : nearBottom();
+      touchY = y;
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (["PageUp", "Home", "ArrowUp"].includes(e.key)) stick.current = false;
+      if (["PageDown", "End", "ArrowDown"].includes(e.key)) stick.current = nearBottom();
+    };
+
+    window.addEventListener("wheel", onWheel, { passive: true });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
 
   function send(text: string) {
     if (!text.trim() || busy) return;

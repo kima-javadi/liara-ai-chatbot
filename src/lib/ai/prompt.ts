@@ -10,13 +10,22 @@ export const SYSTEM_PROMPT = `تو «Liara Copilot» هستی، دستیار ا�
 
 قواعد قطعی:
 1. مستندات ارائه‌شده در context منبع اصلی و مرجح توست؛ هر جا موضوع را پوشش می‌دهند، بر همان اساس پاسخ بده. اگر مستندات بازیابی‌شده موضوع را کامل پوشش نمی‌دهند، باز هم پاسخ کاربردی بده: از دانش استاندارد خودت درباره لیارا و استقرار برنامه‌های وب استفاده کن، مقادیر پیش‌فرض یا نمونه منطقی بگذار، و آن بخش‌هایی را که از مستندات نیامده با یک جمله کوتاه مشخص کن (مثلاً «این مقدار نمونه است، متناسب با پروژه‌ات تغییرش بده»).
-   فقط و فقط وقتی از پاسخ دادن خودداری کن که سؤال هیچ ربطی به استقرار، میزبانی، زیرساخت یا سرویس‌های لیارا نداشته باشد. هرگز به این بهانه که یک فیلد یا جزئیات در سندهای بازیابی‌شده پیدا نشد، از پاسخ دادن طفره نرو.
+   امتناع فقط برای سؤالی مجاز است که موضوعش کلاً بیرون از حوزه ابر، استقرار و توسعه نرم‌افزار باشد — مثل آب‌وهوا، شعر، ورزش یا آشپزی. در آن حالت هم فقط یک جمله کوتاه بگو و کاربر را به موضوع برگردان. هرگز به این بهانه که یک فیلد یا جزئیات در سندهای بازیابی‌شده پیدا نشد، از پاسخ دادن طفره نرو، و هرگز نگو سؤال «مرتبط نیست» وقتی سؤال درباره خود لیارا یا هر بخشی از کار با آن است.
 2. هرگز لینک نساز. لینک منابع به‌صورت خودکار توسط سیستم اضافه می‌شود؛ تو نباید هیچ URL ای بنویسی.
 3. به همان زبانی پاسخ بده که کاربر نوشته است (فارسی یا انگلیسی).
 4. برای فایل‌های پیکربندی و دستورات، از بلوک کد با زبان مشخص استفاده کن. برای liara.json از \`\`\`json:liara.json و برای دستورات از \`\`\`bash استفاده کن.
 5. وقتی کاربر لاگ خطا می‌فرستد، اول علت ریشه‌ای را در یک جمله بگو، سپس دستورهای رفع مشکل را قدم‌به‌قدم بده.
 6. کوتاه و عملی بنویس. از مقدمه‌چینی پرهیز کن.
 7. وقتی کاربر liara.json یا راه‌اندازی استقرار می‌خواهد، همیشه یک فایل کامل و قابل استفاده بده — نه یک تکه ناقص و نه امتناع. حداقل فیلدهای platform، app و port را متناسب با فریم‌ورک کاربر پر کن و در صورت نیاز disks، cron، build یا healthCheck را هم اضافه کن. اگر نام برنامه یا پورت را نمی‌دانی، یک مقدار نمونه منطقی بگذار (مثلاً app را "my-flask-app" و port را پورت پیش‌فرض همان فریم‌ورک) و زیر کد یک جمله بنویس که کاربر باید آن را با مقدار خودش عوض کند. هرگز نگو «فیلد platform در مستندات پیدا نشد».
+8. سؤال‌های کلی و معرفی‌محور درباره خود لیارا («لیارا چه خدماتی دارد؟»، «لیارا چیست؟»، «با لیارا چه کارهایی می‌شود کرد؟») کاملاً در حوزه توست و امتناع از آن‌ها خطاست. سرویس‌های لیارا اینها هستند: PaaS (استقرار برنامه روی پلتفرم)، DBaaS (دیتابیس به‌عنوان سرویس)، IaaS (سرور مجازی ابری / VPS)، AI (API هوش مصنوعی سازگار با OpenAI)، Object Storage سازگار با S3، سامانه مدیریت دامنه و DNS، برنامه‌های آماده (One Click Apps) و ایمیل‌سرور. برای چنین سؤالی این سرویس‌ها را فهرست کن، برای هرکدام یک خط توضیح بده و بپرس کاربر می‌خواهد روی کدام‌یک عمیق‌تر برود.
+9. «اول ابهام را رفع کن»: اگر درخواست کاربر یک پارامتر فنی حیاتی را مشخص نکرده و پاسخ نهایی واقعاً به آن وابسته است — مثلاً «برنامه‌ام را چطور دیپلوی کنم؟» بدون نام فریم‌ورک، یا «چطور دیتابیس راه بیندازم؟» بدون نوع دیتابیس — نه فرض بگیر و نه آموزش عمومی و همه‌حالته تحویل بده. به‌جایش یک یا حداکثر دو سؤال کوتاه و دقیق بپرس، گزینه‌های محتمل را به‌صورت فهرست بولت زیرش بگذار، و همان‌جا تمام کن تا کاربر جواب بدهد. قیدهای این قاعده:
+   - فقط وقتی فعال است که پاسخ با هر گزینه واقعاً متفاوت شود. اگر جواب برای همه گزینه‌ها یکسان است (مثلاً «لاگ‌ها را چطور ببینم؟»)، مستقیم جواب بده.
+   - اگر کاربر آن پارامتر را در همین پیام یا در پیام‌های قبلی همین گفتگو گفته است، دوباره نپرس؛ همان را استفاده کن.
+   - این قاعده بر قاعده ۷ مقدم است: تا وقتی فریم‌ورک یا پلتفرم روشن نشده، liara.json نساز.
+   - این قاعده بهانه امتناع یا تعویق نیست. فقط یک نوبت سؤال؛ اگر کاربر جواب نداد، گفت «فرقی نمی‌کند» یا خواست خودت انتخاب کنی، بلافاصله طبق قاعده ۷ با یک گزینه پیش‌فرض منطقی پاسخ کامل بده و بنویس کدام را فرض گرفتی. هرگز دو نوبت پشت‌هم سؤال نپرس.
+   - فقط سراغ همان پارامتری برو که پاسخ را عوض می‌کند (مثلاً فریم‌ورک یا نوع دیتابیس). چیزهایی مثل نام برنامه و پورت را نپرس؛ آن‌ها طبق قاعده ۷ مقدار نمونه می‌گیرند.
+   - حداکثر ۳ گزینه پیشنهاد بده، چون خط قدم‌های بعدی بیش از ۳ مورد را نشان نمی‌دهد. اگر گزینه‌های محتمل بیشتر است، ۳ مورد رایج را بگذار و بنویس کاربر می‌تواند گزینه دیگری هم بنویسد.
+   - در نوبت رفع ابهام هم خط قدم‌های بعدی اجباری است و همان گزینه‌ها را در آن بگذار تا کاربر با یک کلیک جواب بدهد (مثلاً: Next.js | Laravel | Django). اگر آن پارامتر فهرست گزینه ندارد، محتمل‌ترین مقادیر را به‌عنوان گزینه بگذار — این خط را هرگز حذف نکن.
 
 در انتهای هر پاسخ، دقیقاً یک خط اضافه کن که شامل ۲ تا ۳ قدم بعدیِ مشخص و مرتبط با همین پاسخ است، با این قالب:
 ${CHIP_MARKER_OPEN} متن قدم اول | متن قدم دوم | متن قدم سوم ${CHIP_MARKER_CLOSE}
@@ -24,8 +33,33 @@ ${CHIP_MARKER_OPEN} متن قدم اول | متن قدم دوم | متن قدم 
 هر قدم باید یک سؤال یا درخواست واقعی و قابل کلیک باشد که کاربر منطقاً بعد از این پاسخ می‌پرسد — نه یک برچسب عمومی. برای نمونه، بعد از ساختن liara.json برای Flask:
 ${CHIP_MARKER_OPEN} چطور این برنامه را با CLI دیپلوی کنم؟ | یک دیسک برای فایل‌های آپلودی اضافه کن | متغیرهای محیطی را چطور تنظیم کنم؟ ${CHIP_MARKER_CLOSE}
 
+استثنا: در نوبت رفع ابهام (قاعده ۹) قدم‌ها همان گزینه‌های پاسخِ آن سؤال‌اند، نه سؤال بعدی.
+
 این فقط یک نمونه است؛ عیناً کپی‌اش نکن و هرگز عبارت‌های بی‌معنایی مثل «پیشنهاد اول» یا «قدم دوم» ننویس. قدم‌ها را از دل موضوع همین گفتگو بساز.
 این خط باید آخرین خط پاسخ باشد و هیچ متنی بعد از آن نیاید.`;
+
+/**
+ * Below this top-1 BM25 score the retrieved set is treated as noise rather
+ * than as documentation.
+ *
+ * Measured over the committed index. Sixteen questions that retrieve
+ * correctly score 6.54 (NextJS deploy) to 74.68 (a config-generation
+ * request) at top-1. A query whose only indexed token is a very common one
+ * scores about 1.7: «لیارا چه خدماتی داره؟» scored 1.74, because «خدماتی»
+ * and «داره» have df 0 in this corpus — it spells them «خدمات» and «ارائه
+ * می‌دهد» — leaving «لیارا» (df 1749 of 4050) to rank the whole corpus. The
+ * top-6 it produced was the CLI delete-domain page, the team-roles page and
+ * the console page.
+ *
+ * The scores are unnormalized, so this is a floor on "did any query term
+ * discriminate at all", not a relevance percentage. It is deliberately much
+ * closer to the noise value than to the lowest good one.
+ *
+ * It is NOT a topicality gate and must never be used as one: «دستور پخت
+ * قرمه سبزی» scores 10.49 against this corpus. Deciding what is off-domain
+ * is the prompt's job; this only decides how much the context is trusted.
+ */
+const MIN_GROUNDING_SCORE = 4;
 
 /**
  * Renders retrieved chunks as the grounding context.
@@ -54,6 +88,21 @@ export function buildContext(hits: SearchHit[]): string {
       .join("\n");
     return `[سند ${i + 1}] ${heading}\n${c.text}\n${code}`.trim();
   });
+
+  // A weak top-1 gets the same anti-refusal framing as no hits at all, and
+  // the chunks are passed through underneath it rather than dropped — they
+  // are occasionally still useful, and the model is told not to rely on them.
+  //
+  // This branch is the direct cause of the reported defect. Asked «لیارا چه
+  // خدماتی داره؟» the model replied «سوال شما مرتبط با خدمات خاص لیارا نیست و
+  // من نمی‌توانم به آن پاسخ دهم.» Retrieval had not come back empty — so the
+  // careful anti-refusal wording of the branch above never ran — it came back
+  // with six unrelated chunks at score 1.74, labelled «مستندات مرتبط». Given
+  // a broad question and six irrelevant documents presented as the relevant
+  // ones, the only consistent move left in the prompt was rule 1's refusal.
+  if ((hits[0]?.score ?? 0) < MIN_GROUNDING_SCORE) {
+    return `هیچ‌کدام از اسناد بازیابی‌شده به‌روشنی به این سؤال مربوط نیست (امتیاز بازیابی بسیار پایین بود). به اسناد زیر تکیه نکن و آن‌ها را مرتبط فرض نکن؛ طبق قاعده ۱ با دانش عمومی خودت درباره لیارا و استقرار برنامه‌های وب یک پاسخ کاربردی و کامل بده و در یک جمله کوتاه بگو که این پاسخ از مستندات بازیابی‌شده نیامده. این‌که موضوع در اسناد نبود دلیلی برای امتناع نیست؛ فقط اگر سؤال هیچ ربطی به لیارا و حوزه ابر و استقرار ندارد از پاسخ دادن خودداری کن.\n\nاسناد بازیابی‌شده (احتمالاً بی‌ربط):\n\n${blocks.join("\n\n---\n\n")}`;
+  }
 
   return `مستندات مرتبط:\n\n${blocks.join("\n\n---\n\n")}`;
 }
@@ -127,12 +176,11 @@ function isConfigGenerationIntent(text: string): boolean {
  * the length of the base query (see ENRICHMENT_BUDGET_RATIO), so enrichment
  * can reorder the candidate set the user's words select but never replace it.
  */
-const CONFIG_ENRICHMENT: Array<[term: string, share: number]> = [
+const CONFIG_ENRICHMENT: Vocabulary = [
   ["liara.json", 8],
   ["پیکربندی", 4],
   ["فیلد", 10],
 ];
-const ENRICHMENT_SHARE_TOTAL = CONFIG_ENRICHMENT.reduce((a, [, w]) => a + w, 0);
 
 /**
  * Total enrichment weight: one unit per token the user actually typed, with a
@@ -152,15 +200,99 @@ const ENRICHMENT_SHARE_TOTAL = CONFIG_ENRICHMENT.reduce((a, [, w]) => a + w, 0);
 const ENRICHMENT_BUDGET_RATIO = 1;
 const ENRICHMENT_BUDGET_FLOOR = 8;
 
-function enrichment(base: string): string {
+type Vocabulary = Array<[term: string, share: number]>;
+
+function enrichment(base: string, vocabulary: Vocabulary): string {
+  const shareTotal = vocabulary.reduce((a, [, w]) => a + w, 0);
   const budget = Math.max(
     ENRICHMENT_BUDGET_FLOOR,
     Math.round(tokenize(base).length * ENRICHMENT_BUDGET_RATIO),
   );
-  return CONFIG_ENRICHMENT.flatMap(([term, share]) =>
-    Array(Math.max(1, Math.round((budget * share) / ENRICHMENT_SHARE_TOTAL))).fill(term),
-  ).join(" ");
+  return vocabulary
+    .flatMap(([term, share]) =>
+      Array(Math.max(1, Math.round((budget * share) / shareTotal))).fill(term),
+    )
+    .join(" ");
 }
+
+/**
+ * Overview intent: a broad question about what Liara *is* or what it offers,
+ * as opposed to a question about one of its services.
+ *
+ * This is the second half of the reported defect. «لیارا چه خدماتی داره؟»
+ * retrieved six unrelated chunks at score 1.74 because its only indexed token
+ * was «لیارا» (df 1749 of 4050) — «خدماتی» and «داره» have df 0; the corpus
+ * writes «خدمات» and «ارائه می‌دهد». The page that answers the question exists
+ * and is unambiguous: overview/about («لیارا در یک نگاه»), whose first two
+ * chunks name PaaS, DBaaS, IaaS, AI, S3-compatible Object Storage, DNS
+ * management, One Click Apps and Email Server.
+ *
+ * Detection is a WHITELIST, not the noun/verb-proximity pair the config
+ * intent uses, and deliberately so. The enrichment vocabulary below leans on
+ * «نگاه» (df 20), rare enough that it decides the ranking on its own rather
+ * than re-ranking the user's candidate set — measured top-1 scores land near
+ * 55 against the 6-13 a normal query produces. For the target queries that is
+ * the point: the user's own words carry almost no retrievable signal. But it
+ * means a false positive replaces a real question instead of nudging it, so
+ * the rule is that EVERY content token must be a platform-scope word. Any
+ * mention of a specific service, framework, file or task vetoes it
+ * automatically, with no blocklist to keep in sync with the corpus:
+ * «دیتابیس», «liara.json», «object», «flask», «cron» are simply not on the
+ * list. At least one BROAD term is also required, so «چطور؟» alone does not
+ * fire.
+ */
+const OVERVIEW_BROAD = new Set([
+  // Persian: catalogue nouns and the bare "what is it / what does it do".
+  "خدمات", "خدماتی", "سرویس", "سرویسها", "سرویسهای", "امکانات", "امکاناتی",
+  "قابلیت", "قابلیتها", "قابلیتهای", "محصولات", "محصول",
+  "چیست", "چیه", "چیکار", "کارهایی", "کارها", "معرفی",
+  // English.
+  "services", "service", "features", "feature", "products", "product",
+  "offer", "offers", "offering", "offerings", "capabilities", "overview",
+]);
+
+/**
+ * Words allowed alongside the broad terms without being sufficient on their
+ * own: the platform's own name, and the colloquial have/do verbs that Persian
+ * questions of this shape are built from. «دارد», «دارند», «چه» and friends
+ * are absent because `tokenize` already drops them as stopwords.
+ */
+const OVERVIEW_FILLER = new Set([
+  "لیارا", "liara",
+  "داره", "دارید", "داری", "دارن", "میکنه", "میکند", "میده", "میدهد",
+  "ارائه", "میشه", "بشه", "بگو", "بده",
+  "what", "which", "does", "do", "provide", "provides", "there", "about",
+]);
+
+function isOverviewIntent(text: string): boolean {
+  const tokens = tokenize(text);
+  if (!tokens.length) return false;
+  if (!tokens.some((t) => OVERVIEW_BROAD.has(t))) return false;
+  return tokens.every((t) => OVERVIEW_BROAD.has(t) || OVERVIEW_FILLER.has(t));
+}
+
+/**
+ * Enrichment terms for an overview question, as explicit weights.
+ *
+ * «نگاه» is the load-bearing one: it comes from the page title «لیارا در یک
+ * نگاه», which every one of the page's ten chunks repeats, and with df 20 it
+ * is the rarest page-level identifier available without touching bm25.ts. The
+ * other three keep the intro chunks — the ones that actually enumerate the
+ * service lines — ahead of the per-service sections of the same page.
+ *
+ * Measured over the committed index against seven phrasings of the question
+ * (Persian colloquial, Persian formal, and English): this vocabulary puts an
+ * overview/about chunk at top-1 for all seven. Two alternatives were tried —
+ * «نگاه»+«لیارا» alone lost «لیارا چیست؟» to the AI overview page (which
+ * shares the «در یک نگاه» title pattern), and «نگاه»+«زیرساخت» ranked the
+ * IaaS section above the intro that lists everything.
+ */
+const OVERVIEW_ENRICHMENT: Vocabulary = [
+  ["نگاه", 8],
+  ["خدمات", 4],
+  ["سرویس", 3],
+  ["زیرساخت", 3],
+];
 
 /**
  * The current turn is folded in at EQUAL weight with the previous one.
@@ -192,7 +324,13 @@ function enrichment(base: string): string {
  */
 export function retrievalQuery(current: string, previous?: string): string {
   const base = previous ? `${previous} ${current}` : current;
-  return isConfigGenerationIntent(current)
-    ? `${base} ${enrichment(current)}`
-    : base;
+  // Both intents are read off the CURRENT turn only, so neither carries
+  // forward into an unrelated follow-up.
+  if (isConfigGenerationIntent(current)) {
+    return `${base} ${enrichment(current, CONFIG_ENRICHMENT)}`;
+  }
+  if (isOverviewIntent(current)) {
+    return `${base} ${enrichment(current, OVERVIEW_ENRICHMENT)}`;
+  }
+  return base;
 }
