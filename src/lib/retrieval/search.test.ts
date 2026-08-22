@@ -212,6 +212,58 @@ describe("search", () => {
     });
   });
 
+  // Regression coverage for the reported defect: «لیارا چه خدماتی داره؟»
+  // retrieved six unrelated chunks at top-1 score 1.74 (the CLI delete-domain
+  // page, the team-roles page, the console page) because the query's only
+  // indexed token was «لیارا». «خدماتی» and «داره» have df 0 in this corpus —
+  // it spells them «خدمات» and «ارائه می‌دهد» — so BM25 had one very common
+  // term to rank 4,050 chunks on. overview/about is the page that answers the
+  // question: its first two chunks list PaaS, DBaaS, IaaS, AI, Object
+  // Storage, DNS, One Click Apps and Email Server by name.
+  describe("overview intent", () => {
+    const BROAD_CASES = [
+      "لیارا چه خدماتی داره؟",
+      "خدمات لیارا چیه؟",
+      "لیارا چیکار میکنه؟",
+      "با لیارا چه کارهایی میشه کرد؟",
+      "لیارا چه امکاناتی داره؟",
+      "لیارا چیست؟",
+      "what services does liara offer?",
+    ];
+
+    it("retrieves the overview page for every broad phrasing", () => {
+      for (const q of BROAD_CASES) {
+        const hits = search(retrievalQuery(q), 6);
+        expect(
+          hits[0]?.chunk.url,
+          `expected overview top-1 for: ${q}`,
+        ).toMatch(/^https:\/\/docs\.liara\.ir\/overview\/about/);
+      }
+    });
+
+    // The enrichment vocabulary is built from a term rare enough (df 20) to
+    // dominate a query outright, so the guard that matters is the one on false
+    // positives. These top-1 pages are the PRE-CHANGE baseline, captured over
+    // the committed index — including one pre-existing miss («خدمات دیتابیس
+    // لیارا چیست؟» ranks a data-centers chunk above dbaas/about, and did so
+    // before this change too). The assertion is that overview enrichment does
+    // not fire on them, so their ranking is exactly what it was.
+    const UNAFFECTED: Array<{ q: string; top1: string }> = [
+      { q: "خدمات دیتابیس لیارا چیست؟", top1: "https://docs.liara.ir/overview/data-centers" },
+      { q: "سرویس هوش مصنوعی لیارا چه مدل‌هایی دارد؟", top1: "https://docs.liara.ir/ai/about" },
+      { q: "object storage چیست و چطور استفاده کنم؟", top1: "https://docs.liara.ir/object-storage/how-tos/direct-download" },
+      { q: "liara.json چیست؟", top1: "https://docs.liara.ir/paas/liarajson" },
+      { q: "قیمت سرور مجازی", top1: "https://docs.liara.ir/iaas/api/create-vm" },
+      { q: "دیسک چیست؟", top1: "https://docs.liara.ir/iaas/disks/see-disks" },
+    ];
+
+    it("does not hijack a question that names a specific service", () => {
+      for (const { q, top1 } of UNAFFECTED) {
+        expect(search(retrievalQuery(q), 6)[0]?.chunk.url, `top-1 for: ${q}`).toBe(top1);
+      }
+    });
+  });
+
   // Regression coverage for the unbounded-query-cost fix. `queryIndex` now
   // folds duplicate query terms into a count map instead of re-scanning the
   // corpus once per occurrence. The claim attached to that change is "the
