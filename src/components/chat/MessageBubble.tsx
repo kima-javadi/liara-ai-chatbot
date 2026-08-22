@@ -50,7 +50,15 @@ export function MessageBubble({ message, streaming, onSuggestion }: Props) {
     <div className="animate-rise flex gap-3">
       <Avatar />
       <div className="min-w-0 flex-1 pt-0.5">
-        <div className="text-[15px] leading-8 text-ink">
+        {/* Paragraph spacing lives here rather than on the <p> in Prose,
+            because renderContent emits paragraphs and code blocks as siblings
+            of this div (the fragments Prose returns create no DOM node). The
+            `p + p` pair is deliberate: it separates consecutive paragraphs —
+            which Tailwind's preflight leaves at margin 0, so a wrapped list
+            item was indistinguishable from the next item — while leaving the
+            space around a code block to CodeBlock's own `my-3`, and adding no
+            stray gap above the first paragraph or below the last. */}
+        <div className="text-[15px] leading-8 text-ink [&>p+p]:mt-4">
           {renderContent(message.content, streaming)}
         </div>
 
@@ -59,16 +67,26 @@ export function MessageBubble({ message, streaming, onSuggestion }: Props) {
         ) : null}
 
         {message.suggestions?.length ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {message.suggestions.map((s) => (
-              <Chip
-                key={s}
-                variant="suggestion"
-                onClick={() => onSuggestion?.(s)}
-              >
-                {s}
-              </Chip>
-            ))}
+          // Labelled like SourceBadges, and for the same reason: a bare row
+          // of chips reads as decoration. No separator rule though — sources
+          // draw one directly above, and two in a row is a lot of furniture.
+          //
+          // Wording stays neutral because these chips carry two different
+          // things: the follow-up steps of a normal answer, and the answer
+          // options of a clarifying question (system prompt rule 9).
+          <div className="mt-4">
+            <p className="mb-2 text-[11px] text-ink-3">پیشنهاد برای ادامه</p>
+            <div className="flex flex-wrap gap-2">
+              {message.suggestions.map((s) => (
+                <Chip
+                  key={s}
+                  variant="suggestion"
+                  onClick={() => onSuggestion?.(s)}
+                >
+                  {s}
+                </Chip>
+              ))}
+            </div>
           </div>
         ) : null}
       </div>
@@ -132,11 +150,23 @@ function Prose({ text, streaming }: { text: string; streaming?: boolean }) {
   return (
     <>
       {paragraphs.map((p, i) => (
+        // whitespace-pre-line keeps single newlines as line breaks.
+        //
+        // Only blank lines start a new paragraph here, and HTML collapses a
+        // lone newline into a space — so when the model wrote a bulleted list
+        // one-per-line (which it does about half the time; the same question
+        // came back double-spaced on one run and single-spaced on the next),
+        // all eight bullets rendered as one run-on line. `pre-line` honours
+        // those newlines while still collapsing the runs of spaces and the
+        // indentation that markdown lists arrive with.
         <p
           key={i}
-          className={
-            i === paragraphs.length - 1 && streaming ? "caret" : undefined
-          }
+          className={[
+            "whitespace-pre-line",
+            i === paragraphs.length - 1 && streaming ? "caret" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
         >
           {inline(p.trim())}
         </p>
