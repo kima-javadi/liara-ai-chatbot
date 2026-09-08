@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { Header } from "@/components/chat/Header";
@@ -15,12 +15,19 @@ import type { Message, Source } from "@/components/chat/MessageBubble";
 // second assistant message carrying the same source parts.
 const transport = new DefaultChatTransport({ api: "/api/chat" });
 
-/**
- * How far from the bottom still counts as "at the bottom", in px. Used only
- * to decide whether a downward gesture has brought the reader back to the
- * live end of the transcript, which re-arms the follow.
- */
-const STICK_SLACK = 80;
+/** Breathing room left above the pinned question, in px. */
+const ANCHOR_GAP = 16;
+
+/** Keys that scroll the page, and so hand control back to the reader. */
+const SCROLL_KEYS = [
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  "ArrowUp",
+  "ArrowDown",
+  " ",
+];
 
 const QUICK_ACTIONS = [
   { label: "عیب‌یابی لاگ خطا", prompt: "این لاگ خطای استقرار را بررسی کن:\n" },
@@ -58,99 +65,101 @@ export default function Page() {
     };
   });
 
-  // Autoscroll: stick to the bottom of the page, and re-arm on every new
-  // question.
+  // Autoscroll: park the new question at the top of the viewport and leave it
+  // there while the answer streams in underneath.
   //
-  // A one-shot scroll when the question lands is not enough. Measured in the
-  // real app: sending a second question scrolled to 327px, which WAS the
-  // bottom at that instant — but the answer then streamed in and the page
-  // grew to 1058px, so the reply the user was waiting for arrived below the
-  // fold anyway. Following the growth is the only version of this that keeps
-  // the newest content on screen.
+  // This followed the bottom of the page before, which is the wrong end of a
+  // long answer to show: it put the closing line on screen and the first
+  // line — the part that actually answers the question — above the fold, so
+  // reading started with a scroll back up.
   //
-  // `stick` is what keeps that from hijacking the page. The scroll listener
-  // re-derives it from distance-to-bottom, so scrolling up to re-read
-  // something stops the follow, and scrolling back down resumes it. That
-  // works because the programmatic scroll below lands within the threshold
-  // of the bottom and so keeps the flag true.
+  // The pin is re-applied on every layout change rather than fired once. When
+  // the question lands the assistant message is still empty, the page is too
+  // short to lift it to the top, and the browser clamps the request; the
+  // target only becomes reachable once the answer has streamed in. Re-applying
+  // converges on it and then stops moving on its own, because the answer grows
+  // *below* the anchor and so never shifts it.
   //
-  // Instant, not smooth, on purpose: a smooth scroll emits scroll events at
-  // intermediate positions, and the listener would read one of those as "the
-  // user scrolled up" and unstick mid-animation. It also sidesteps the
-  // reduced-motion question entirely.
+  // A short answer never makes the page tall enough to lift the question all
+  // the way up. That is left alone rather than padded out with a spacer: the
+  // whole exchange is already on screen, which is what the scroll was for, and
+  // a spacer would buy the alignment with a screenful of dead space under
+  // every short reply.
   //
-  // The follow is driven by a ResizeObserver rather than by a render effect
-  // keyed on the message text. Keying on text length tracked the stream
-  // correctly but stopped 116px short at the end, every time: the last of the
-  // page's growth — the chip row appearing once splitChips sees a complete
-  // marker, and the streaming caret going away — arrives in a commit where
-  // the text length has already settled, so the effect never re-ran. Watching
-  // the layout instead catches every source of growth without having to
-  // enumerate them. Scrolling does not resize the body, so this cannot loop.
+  // Instant, not smooth: a smooth scroll emits scroll events at intermediate
+  // positions that the gesture listeners below would then have to tell apart
+  // from a reader's own scrolling. It also sidesteps reduced-motion entirely.
+  //
+  // Driven by a ResizeObserver rather than an effect keyed on the message
+  // text. Keying on text tracked the stream but stopped 116px short at the
+  // end, every time: the last of the page's growth — the chip row appearing
+  // once splitChips sees a complete marker, and the streaming caret going
+  // away — arrives in a commit where the text has already settled, so the
+  // effect never re-ran. Watching the layout catches every source of growth
+  // without enumerating them. Scrolling does not resize the body, so this
+  // cannot loop.
   const stick = useRef(true);
+  const anchor = useRef<HTMLDivElement | null>(null);
   const userTurns = messages.reduce((n, m) => (m.role === "user" ? n + 1 : n), 0);
+
+  const pin = useCallback(() => {
+    const el = anchor.current;
+    if (!stick.current || !el) return;
+    // The header is sticky, so the top of the viewport is not the top of the
+    // readable area. Measured rather than hardcoded, to track the header.
+    const header =
+      document.querySelector("header")?.getBoundingClientRect().height ?? 0;
+    window.scrollTo({
+      top: el.getBoundingClientRect().top + window.scrollY - header - ANCHOR_GAP,
+    });
+  }, []);
 
   useEffect(() => {
     stick.current = true;
-  }, [userTurns]);
+    pin();
+  }, [userTurns, pin]);
 
   useEffect(() => {
-    const follow = () => {
-      if (!stick.current) return;
-      window.scrollTo({ top: document.documentElement.scrollHeight });
-    };
-    const observer = new ResizeObserver(follow);
+    const observer = new ResizeObserver(pin);
     observer.observe(document.body);
     return () => observer.disconnect();
-  }, []);
+  }, [pin]);
 
-  // Unstick on an explicit upward gesture, NOT on scroll position.
+  // Any scroll gesture hands the page back to the reader until they ask the
+  // next question. Nothing re-arms the pin in between — unlike the bottom
+  // follow this replaced, the anchor is a fixed point rather than "wherever
+  // the page currently ends", so re-arming on the way past it would yank the
+  // page out from under whatever the reader was doing.
   //
-  // Deriving it from distance-to-bottom inside a `scroll` handler looks
-  // simpler and is what this did first, but a `scroll` event carries no hint
-  // of who caused it, and the follow above is itself a scroll — so while the
-  // page was also growing, the handler read its own work as a reader
-  // scrolling away and gave up 593px short of the bottom (measured). A wheel,
-  // a touch drag or a PageUp/Home keypress is unambiguously the human.
+  // Bound to wheel/touch/keys rather than to `scroll`: a `scroll` event
+  // carries no hint of who caused it, and the pin above is itself a scroll —
+  // the handler would read its own work as the reader scrolling away.
   useEffect(() => {
-    const nearBottom = () =>
-      document.documentElement.scrollHeight - window.scrollY - window.innerHeight <
-      STICK_SLACK;
-
-    const onWheel = (e: WheelEvent) => {
-      // Scrolling back down to the bottom re-arms it, so the reader does not
-      // have to send a new message to get the follow back.
-      stick.current = e.deltaY < 0 ? false : nearBottom();
-    };
-
-    let touchY: number | null = null;
-    const onTouchStart = (e: TouchEvent) => {
-      touchY = e.touches[0]?.clientY ?? null;
-    };
-    const onTouchMove = (e: TouchEvent) => {
-      const y = e.touches[0]?.clientY;
-      if (touchY === null || y === undefined) return;
-      // Dragging the content downward reveals what is above: scrolling up.
-      stick.current = y > touchY ? false : nearBottom();
-      touchY = y;
+    const release = () => {
+      stick.current = false;
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (["PageUp", "Home", "ArrowUp"].includes(e.key)) stick.current = false;
-      if (["PageDown", "End", "ArrowDown"].includes(e.key)) stick.current = nearBottom();
+      // Arrow keys in the composer move the caret, not the page.
+      const el = e.target as HTMLElement | null;
+      if (el?.tagName === "TEXTAREA" || el?.tagName === "INPUT") return;
+      if (SCROLL_KEYS.includes(e.key)) release();
     };
 
-    window.addEventListener("wheel", onWheel, { passive: true });
-    window.addEventListener("touchstart", onTouchStart, { passive: true });
-    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("wheel", release, { passive: true });
+    window.addEventListener("touchmove", release, { passive: true });
     window.addEventListener("keydown", onKeyDown);
     return () => {
-      window.removeEventListener("wheel", onWheel);
-      window.removeEventListener("touchstart", onTouchStart);
-      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("wheel", release);
+      window.removeEventListener("touchmove", release);
       window.removeEventListener("keydown", onKeyDown);
     };
   }, []);
+
+  const lastUserIndex = view.reduce(
+    (last, m, i) => (m.role === "user" ? i : last),
+    -1,
+  );
 
   function send(text: string) {
     if (!text.trim() || busy) return;
@@ -168,12 +177,17 @@ export default function Page() {
           ) : (
             <div className="space-y-7">
               {view.map((m, i) => (
-                <MessageBubble
-                  key={m.id}
-                  message={m}
-                  streaming={busy && i === view.length - 1 && m.role === "assistant"}
-                  onSuggestion={send}
-                />
+                // The wrapper exists to carry the scroll anchor: MessageBubble
+                // renders its own root and is not a forwardRef.
+                <div key={m.id} ref={i === lastUserIndex ? anchor : undefined}>
+                  <MessageBubble
+                    message={m}
+                    streaming={
+                      busy && i === view.length - 1 && m.role === "assistant"
+                    }
+                    onSuggestion={send}
+                  />
+                </div>
               ))}
             </div>
           )}
