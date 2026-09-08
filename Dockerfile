@@ -1,13 +1,15 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-
 FROM node:24-alpine AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+# `npm ci` runs in the build stage itself rather than in a separate `deps`
+# stage. node_modules here is ~547 MB across ~32k files, and copying that
+# across stages (`COPY --from=deps`) was slow enough to time out the Liara
+# build. Installing it where it is used removes that copy entirely.
+# package.json/package-lock.json are still copied ahead of the source so the
+# install layer is cached against the lockfile, not against every edit.
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
