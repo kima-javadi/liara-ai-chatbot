@@ -208,6 +208,26 @@ function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
         مستندات رسمی لیارا.
       </p>
 
+      {/* The English mirror. Only the empty state carries both languages:
+          nobody has said which one they speak yet, and the assistant answers
+          in whichever the first question arrives in. Once it does, the thread
+          settles into that language and this is gone.
+
+          Kept quieter than the Persian above rather than side by side —
+          Persian is the primary audience, and two headings at equal weight
+          would read as a language picker the user is expected to act on.
+          Not an <h2>: one heading per empty state, and this repeats it. */}
+      <div dir="ltr" lang="en" className="mx-auto mt-7 max-w-md">
+        <p className="text-lg font-semibold text-ink-2">
+          What are you deploying on Liara?
+        </p>
+        <p className="mt-2 text-sm leading-6 text-ink-3">
+          Generate a config, get the CLI commands, or paste a deployment error
+          log and we&rsquo;ll trace it to its root cause — all grounded in
+          Liara&rsquo;s official docs.
+        </p>
+      </div>
+
       <div className="mt-8 flex flex-wrap justify-center gap-2">
         {QUICK_ACTIONS.map((a) => (
           <Chip key={a.label} onClick={() => onPick(a.prompt)}>
