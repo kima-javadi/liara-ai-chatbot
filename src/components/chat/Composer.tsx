@@ -34,6 +34,7 @@ export function Composer({ onSend, disabled }: Props) {
           <textarea
             ref={ref}
             rows={1}
+            dir="auto"
             value={value}
             disabled={disabled}
             onChange={(e) => setValue(e.target.value)}
